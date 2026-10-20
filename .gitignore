@@ -1,0 +1,48 @@
+# .NET build artifacts
+bin/
+obj/
+[Bb]uild/
+[Dd]ebug/
+[Rr]elease/
+
+# Local .NET SDK
+tools/dotnet/
+
+# Node.js dependencies
+node_modules/
+
+# Local Appium drivers and extensions
+.appium/
+
+# Environment and secrets
+.env
+.env.*
+!.env.example
+*.pfx
+*.p12
+secrets.json
+
+# IDE settings
+.vs/
+.vscode/
+.idea/
+*.user
+*.suo
+
+# Logs and temporary files
+*.log
+logs/
+Temp/
+tmp/
+*.tmp
+
+# Video files and generated media
+*.mp4
+*.mov
+*.mkv
+*.webm
+
+# OS files
+.DS_Store
+Thumbs.db
+Desktop.ini
