@@ -136,14 +136,14 @@ adb devices
 Если Appium установлен локально в проекте через npm, выполните:
 
 ```powershell
-npx --no-install appium --version
+npx appium --version
 npx --no-install appium driver list --installed
 ```
 
 Запустите сервер в отдельном окне PowerShell:
 
 ```powershell
-npx --no-install appium --address 127.0.0.1 --port 4723
+npx appium --address 127.0.0.1 --port 4723
 ```
 
 Если Appium ещё не установлен локально, установите его в папку проекта:
@@ -151,6 +151,7 @@ npx --no-install appium --address 127.0.0.1 --port 4723
 ```powershell
 npm install --save-dev appium
 npx appium driver install uiautomator2
+npx appium driver list --installed
 ```
 
 > Для полностью воспроизводимого запуска сохраните `package.json` и `package-lock.json` в репозитории. Установка драйвера UiAutomator2 выполняется отдельно от установки самого Appium.
@@ -189,5 +190,6 @@ npx appium driver install uiautomator2
 ### Примечания
 
 - Команды Appium запускайте в отдельном окне, оставляя сервер работающим.
-- Не устанавливайте Appium глобально: используйте локальный `node_modules` и `npx --no-install`.
+- Не устанавливайте Appium глобально.
 - Не добавляйте в Git личные данные, токены, видео и диагностические XML с конфиденциальной информацией.
+
