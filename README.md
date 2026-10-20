@@ -98,20 +98,52 @@ This is not yet a verified end-to-end YouTube uploader. In live mode, the automa
 
 ### 1. Откройте папку проекта
 
-```powershell
-cd C:\ShortsPublisher
-```
+# Установить зависимости проекта по lock-файлу
+npm ci
+
+# Хранить расширения Appium внутри проекта
+$env:APPIUM_HOME = "$PWD\.appium"
+
+# Установить драйвер Android
+npx appium driver install uiautomator2
+
+# Проверить установленный драйвер
+npx appium driver list --installed
+
 
 ### 2. Настройте локальный .NET SDK
 
-В проекте используется SDK, расположенный по пути `tools\dotnet\dotnet.exe`.
-
+# Собрать .NET-проект локальным SDK
 ```powershell
-$DOTNET = "$PWD\tools\dotnet\dotnet.exe"
-& $DOTNET --version
+& "$PWD\tools\dotnet\dotnet.exe" restore
 ```
 
-Если файл существует и команда выводит версию SDK, можно продолжать.
+```powershell
+& "$PWD\tools\dotnet\dotnet.exe" build
+```
+Если файл существует и команда выводит версию SDK, можно продолжать, если нет:
+
+# Если .NET не установлен глобально
+```powershell
+New-Item -ItemType Directory -Force -Path ".\tools\dotnet" | Out-Null
+```
+
+```powershell
+Invoke-WebRequest `
+  https://dot.net/v1/dotnet-install.ps1 `
+  -OutFile ".\tools\dotnet-install.ps1"
+```
+
+```powershell
+& "$PWD\tools\dotnet-install.ps1" `
+  -Channel 8.0 `
+  -InstallDir "$PWD\tools\dotnet" `
+  -NoPath
+```
+
+```powershell
+& "$PWD\tools\dotnet\dotnet.exe" --version
+```
 
 ### 3. Настройте Android SDK
 
@@ -133,7 +165,7 @@ adb devices
 
 ### 4. Запустите локальный Appium
 
-Если Appium установлен локально в проекте через npm, выполните:
+Проверка
 
 ```powershell
 npx appium --version
@@ -144,14 +176,6 @@ npx --no-install appium driver list --installed
 
 ```powershell
 npx appium --address 127.0.0.1 --port 4723
-```
-
-Если Appium ещё не установлен локально, установите его в папку проекта:
-
-```powershell
-npm install --save-dev appium
-npx appium driver install uiautomator2
-npx appium driver list --installed
 ```
 
 > Для полностью воспроизводимого запуска сохраните `package.json` и `package-lock.json` в репозитории. Установка драйвера UiAutomator2 выполняется отдельно от установки самого Appium.
