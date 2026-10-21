@@ -715,9 +715,6 @@ if (testSelectNotMadeForKids)
 }
 
 
-
-
-// Р’ РѕР±С‹С‡РЅРѕРј СЂРµР¶РёРјРµ С„Р°Р№Р» РѕР±СЏР·Р°С‚РµР»РµРЅ.
 if (string.IsNullOrWhiteSpace(filePath))
 {
     PrintUsage();
@@ -926,17 +923,46 @@ static async Task<int> EmitAsync(
 static void PrintUsage()
 {
     Console.Error.WriteLine("""
-    ShortsPublisher вЂ” one invocation processes one video.
+    ShortsPublisherService — one invocation processes one video.
 
     Usage:
-      ShortsPublisher.exe --file "C:\videos\clip.mp4" [--task-id 123] [--result-file "C:\results\123.json"]
-      ShortsPublisher.exe --diagnose-ui
-      ShortsPublisher.exe --test-create
+      ShortsPublisher.exe --file "C:\Videos\clip.mp4" [--task-id task-123] [--result-file "C:\Results\task-123.json"]
+
+    Arguments:
+      --file PATH          Required path to the input video.
+      --task-id ID         Optional task identifier.
+      --result-file PATH   Optional path to save the JSON result.
+      --caption TEXT       Caption for --publish-video-youtube mode.
+      --help, -h           Show this help.
+
+    Supported input formats:
+      .mp4, .mov, .m4v
+
+    Diagnostic commands:
+      --diagnose-ui
+      --test-create
+      --test-gallery
+      --test-select-video
+      --test-next
+      --test-done
+      --test-editor-next
+      --test-show-more
+      --test-set-caption
+      --inspect-settings
+      --test-upload-short
+
+    YouTube preparation:
+      --publish-video-youtube
 
     Exit codes:
-      0 = task handled successfully (check status; dry_run_completed is NOT published)
-      1 = processing failed; external orchestrator may retry
-      2 = invalid arguments
+      0 = command completed; inspect JSON status.
+      1 = processing failed.
+      2 = invalid arguments.
+
+    Notes:
+      DryRun=true validates and transfers the video without publishing.
+      --test-upload-short can trigger the actual publication action.
+      Do not use it without explicit authorization.
     """);
 }
 
