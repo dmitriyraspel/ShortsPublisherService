@@ -1,4 +1,5 @@
-﻿
+﻿using System.Diagnostics;
+
 using OpenQA.Selenium;
 using OpenQA.Selenium.Appium;
 using OpenQA.Selenium.Appium.Android;
@@ -13,7 +14,7 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
     private AndroidDriver? _driver;
     private readonly PublisherOptions _options = options;
 
-    public async Task PublishShortAsync(
+    public Task PublishShortAsync(
         string androidPath,
         string title,
         string description,
@@ -26,11 +27,12 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         if (_options.DryRun)
         {
             // Dry run does not open YouTube or attempt publication.
-            return;
+            return Task.CompletedTask;
         }
 
+        // Open an Appium session so the configured device is reachable.
+        // This method intentionally does not attempt a live upload.
         Connect();
-        _driver!.ActivateApp("com.google.android.youtube");
 
         throw new InvalidOperationException(
             "LIVE_UPLOAD_NOT_IMPLEMENTED: UI selectors have not been verified. " +
@@ -46,18 +48,9 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
 
     public string OpenYouTube()
     {
-        try
-        {
-            if (_driver == null)
-                Connect();
-
-            _driver!.ActivateApp("com.google.android.youtube");
-            return "YouTube opened successfully.";
-        }
-        catch (Exception ex)
-        {
-            return $"Failed to open YouTube: {ex.Message}";
-        }
+        Connect();
+        EnsureYouTubeForeground();
+        return _driver!.PageSource;
     }
 
     public string TestCreateButton()
@@ -369,36 +362,47 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         if (string.IsNullOrWhiteSpace(caption))
             throw new ArgumentException("Caption is required.", nameof(caption));
 
+        // Appium's appPackage capability alone does not guarantee that YouTube
+        // is the foreground app. Launch it through Android's package launcher
+        // (monkey uses the package's launcher intent and avoids a fragile
+        // hard-coded activity name containing '$'), then verify foreground.
         Connect();
-        _driver!.ActivateApp("com.google.android.youtube");
-        Thread.Sleep(1200);
+        EnsureYouTubeForeground();
+        Thread.Sleep(800);
 
         // 1. Открываем меню создания.
-        var createButton = _driver.FindElement(
+        var createButton = _driver!.FindElement(
             By.XPath("//*[@content-desc='Create' and @clickable='true']"));
         createButton.Click();
         Thread.Sleep(1000);
 
-        // 2. Выбираем Short, если он ещё не выбран.
-        var shortButton = _driver.FindElement(
-            By.Id("com.google.android.youtube:id/creation_mode_button"));
+        // 2. Явно выбираем пункт Short. Нельзя нажимать creation_mode_button
+        // вслепую: в некоторых версиях YouTube это переключатель Video, и такой
+        // клик переводит поток в обычную загрузку видео.
+        EnsureShortCreationMode();
 
-        if (!string.Equals(
-                shortButton.GetAttribute("selected"),
-                "true",
-                StringComparison.OrdinalIgnoreCase))
+        // 3. Открываем галерею только после подтверждения, что экран относится
+        // к созданию Short. Если нужного элемента нет, прекращаем работу и
+        // сохраняем XML экрана для диагностики — не продолжаем по Video-flow.
+        var galleryButton = _driver!.FindElements(
+                By.Id("com.google.android.youtube:id/unified_permissions_primary_button"))
+            .FirstOrDefault(element => element.Displayed && element.Enabled);
+
+        if (galleryButton == null)
         {
-            shortButton.Click();
-            Thread.Sleep(700);
+            throw CreateUiDiagnosticException(
+                "После выбора Short не появился активный элемент Add from Gallery.");
         }
 
-        // 3. Открываем галерею.
-        var galleryButton = _driver.FindElement(
-            By.Id("com.google.android.youtube:id/unified_permissions_primary_button"));
-
-        if (galleryButton.Text != "Add from Gallery")
-            throw new InvalidOperationException(
-                $"Unexpected gallery button: '{galleryButton.Text}'.");
+        var galleryButtonText = galleryButton.Text;
+        var galleryButtonDescription = galleryButton.GetAttribute("content-desc") ?? string.Empty;
+        if (!galleryButtonText.Contains("Gallery", StringComparison.OrdinalIgnoreCase) &&
+            !galleryButtonDescription.Contains("Gallery", StringComparison.OrdinalIgnoreCase))
+        {
+            throw CreateUiDiagnosticException(
+                $"Найден элемент галереи с неожиданной подписью: text='{galleryButtonText}', " +
+                $"content-desc='{galleryButtonDescription}'.");
+        }
 
         galleryButton.Click();
         Thread.Sleep(1200);
@@ -438,6 +442,115 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver.PageSource;
     }
 
+    private void EnsureShortCreationMode()
+    {
+        const string galleryButtonId =
+            "com.google.android.youtube:id/unified_permissions_primary_button";
+
+        // Если уже открыт экран камеры Shorts, лишний раз ничего не нажимаем.
+        if (_driver!.FindElements(By.Id(galleryButtonId))
+            .Any(element => element.Displayed && element.Enabled))
+        {
+            return;
+        }
+
+        // Ищем только доступные для нажатия элементы с явным названием Short.
+        // Это намеренно не использует creation_mode_button без проверки подписи.
+        var candidates = _driver.FindElements(By.XPath(
+            "//*[@clickable='true' and (" +
+            "contains(translate(@text,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'short') or " +
+            "contains(translate(@content-desc,'ABCDEFGHIJKLMNOPQRSTUVWXYZ','abcdefghijklmnopqrstuvwxyz'),'short'))]"));
+
+        var visibleCandidates = candidates
+            .Where(element => element.Displayed && element.Enabled)
+            .Select(element => new
+            {
+                Element = element,
+                Text = (element.Text ?? string.Empty).Trim(),
+                Description = (element.GetAttribute("content-desc") ?? string.Empty).Trim()
+            })
+            .Where(item =>
+                item.Text.Contains("short", StringComparison.OrdinalIgnoreCase) ||
+                item.Description.Contains("short", StringComparison.OrdinalIgnoreCase))
+            .OrderBy(item =>
+            {
+                var label = item.Text + " " + item.Description;
+                if (label.Contains("create a short", StringComparison.OrdinalIgnoreCase)) return 0;
+                if (label.Equals("short", StringComparison.OrdinalIgnoreCase) ||
+                    label.Equals("shorts", StringComparison.OrdinalIgnoreCase)) return 1;
+                if (label.Contains("short", StringComparison.OrdinalIgnoreCase)) return 2;
+                return 3;
+            })
+            .ToList();
+
+        if (visibleCandidates.Count == 0)
+        {
+            throw CreateUiDiagnosticException(
+                "Не найден доступный для нажатия пункт Short. " +
+                "Автоматизация не будет нажимать переключатель Video наугад.");
+        }
+
+        visibleCandidates[0].Element.Click();
+        Thread.Sleep(1000);
+
+        // Не считаем нажатие успешным, пока не появился элемент галереи Shorts.
+        var galleryVisible = _driver.FindElements(By.Id(galleryButtonId))
+            .Any(element => element.Displayed && element.Enabled);
+
+        if (!galleryVisible)
+        {
+            throw CreateUiDiagnosticException(
+                "Нажат пункт Short, но экран Shorts с кнопкой Add from Gallery не открылся.");
+        }
+    }
+
+    private InvalidOperationException CreateUiDiagnosticException(string message)
+    {
+        string? diagnosticPath = null;
+        string pageSource = string.Empty;
+        try
+        {
+            pageSource = _driver?.PageSource ?? string.Empty;
+            diagnosticPath = Path.Combine(
+                Environment.CurrentDirectory,
+                "youtube-ui-diagnostic.xml");
+            File.WriteAllText(diagnosticPath, pageSource);
+        }
+        catch
+        {
+            // Основная ошибка важнее возможной ошибки записи диагностического XML.
+        }
+
+        string clickableSummary = string.Empty;
+        try
+        {
+            clickableSummary = string.Join(
+                Environment.NewLine,
+                _driver!.FindElements(By.XPath("//*[@clickable='true']"))
+                    .Where(element => element.Displayed)
+                    .Select(element =>
+                    {
+                        var text = (element.Text ?? string.Empty).Trim();
+                        var description = (element.GetAttribute("content-desc") ?? string.Empty).Trim();
+                        var id = element.GetAttribute("resource-id") ?? string.Empty;
+                        return $"text='{text}', desc='{description}', id='{id}'";
+                    })
+                    .Where(line => line != "text='', desc='', id=''")
+                    .Take(40));
+        }
+        catch
+        {
+            clickableSummary = "Не удалось получить список clickable-элементов.";
+        }
+
+        var details = message + Environment.NewLine +
+                      "Видимые clickable-элементы:" + Environment.NewLine + clickableSummary;
+        if (!string.IsNullOrWhiteSpace(diagnosticPath))
+            details += Environment.NewLine + $"XML экрана сохранён: {diagnosticPath}";
+
+        return new InvalidOperationException(details);
+    }
+
     private static string XPathLiteral(string value)
     {
         if (!value.Contains('\''))
@@ -451,6 +564,124 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
     }
 
 
+
+    private const string YouTubePackage = "com.google.android.youtube";
+
+    private void EnsureYouTubeForeground()
+    {
+        // Do not relaunch the app if Android already reports it as foreground.
+        if (IsYouTubeForeground())
+            return;
+
+        var launch = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "monkey", "-p", YouTubePackage, "1");
+
+        if (launch.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "ADB could not launch YouTube. " +
+                $"ExitCode={launch.ExitCode}; stderr={launch.StdErr}; stdout={launch.StdOut}");
+        }
+
+        var deadline = DateTime.UtcNow.AddSeconds(20);
+        string lastActivityOutput = string.Empty;
+
+        while (DateTime.UtcNow < deadline)
+        {
+            Thread.Sleep(500);
+            lastActivityOutput = GetForegroundActivityOutput();
+
+            if (IsForegroundOutputYouTube(lastActivityOutput))
+            {
+                // Give the accessibility tree time to settle after app startup.
+                Thread.Sleep(800);
+                return;
+            }
+        }
+
+        throw new InvalidOperationException(
+            "ADB ran the YouTube launch command, but YouTube did not become the " +
+            "foreground app within 20 seconds. " +
+            $"Last Android activity/window state: {lastActivityOutput}");
+    }
+
+    private bool IsYouTubeForeground()
+    {
+        return IsForegroundOutputYouTube(GetForegroundActivityOutput());
+    }
+
+    private string GetForegroundActivityOutput()
+    {
+        var activity = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "dumpsys", "activity", "activities");
+
+        var window = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "dumpsys", "window", "windows");
+
+        return activity.StdOut + Environment.NewLine + window.StdOut;
+    }
+
+    private static bool IsForegroundOutputYouTube(string output)
+    {
+        if (string.IsNullOrWhiteSpace(output))
+            return false;
+
+        // Match only foreground/resumed activity markers, not a YouTube task
+        // that may merely remain in Android's background task stack.
+        return output.Split(new[] { '\r', '\n' }, StringSplitOptions.RemoveEmptyEntries)
+            .Any(line =>
+                (line.Contains("mResumedActivity", StringComparison.OrdinalIgnoreCase) ||
+                 line.Contains("topResumedActivity", StringComparison.OrdinalIgnoreCase) ||
+                 line.Contains("mCurrentFocus", StringComparison.OrdinalIgnoreCase) ||
+                 line.Contains("mFocusedApp", StringComparison.OrdinalIgnoreCase)) &&
+                line.Contains(YouTubePackage, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private (int ExitCode, string StdOut, string StdErr) RunAdb(params string[] arguments)
+    {
+        var startInfo = new ProcessStartInfo
+        {
+            FileName = Environment.ExpandEnvironmentVariables(_options.AdbPath),
+            UseShellExecute = false,
+            RedirectStandardOutput = true,
+            RedirectStandardError = true,
+            CreateNoWindow = true
+        };
+
+        foreach (var argument in arguments)
+            startInfo.ArgumentList.Add(argument);
+
+        using var process = new Process { StartInfo = startInfo };
+
+        try
+        {
+            if (!process.Start())
+                throw new InvalidOperationException("Could not start the configured ADB executable.");
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException(
+                $"Could not start ADB executable '{_options.AdbPath}'. " +
+                "Check Publisher:AdbPath in configuration.", ex);
+        }
+
+        // Drain both streams asynchronously to avoid a pipe-buffer deadlock.
+        var stdoutTask = process.StandardOutput.ReadToEndAsync();
+        var stderrTask = process.StandardError.ReadToEndAsync();
+
+        if (!process.WaitForExit(15000))
+        {
+            try { process.Kill(entireProcessTree: true); } catch { }
+            throw new TimeoutException(
+                $"ADB command timed out after 15 seconds: {string.Join(" ", arguments)}");
+        }
+
+        Task.WaitAll(stdoutTask, stderrTask);
+        return (process.ExitCode, stdoutTask.Result, stderrTask.Result);
+    }
 
     private void Connect()
     {
