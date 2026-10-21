@@ -43,9 +43,26 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver!.PageSource;
     }
 
+
+    public string OpenYouTube()
+    {
+        try
+        {
+            if (_driver == null)
+                Connect();
+
+            _driver!.ActivateApp("com.google.android.youtube");
+            return "YouTube opened successfully.";
+        }
+        catch (Exception ex)
+        {
+            return $"Failed to open YouTube: {ex.Message}";
+        }
+    }
+
     public string TestCreateButton()
     {
-        Connect();
+        OpenYouTube();
 
         var createButton = _driver!.FindElement(
             By.XPath(
@@ -75,8 +92,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
 
         return _driver.PageSource;
     }
-
-
 
     public string TestSelectGalleryVideo(string fileName)
     {
@@ -190,7 +205,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return result.ToString();
     }
 
-
     public string TestOpenFirstSettingsRow()
     {
         Connect();
@@ -213,6 +227,24 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver.PageSource;
     }
 
+    public string TestSelectPublicVisibility()
+    {
+        Connect();
+
+        // Проверенная координата пункта Public
+        // в меню видимости Shorts на текущем эмуляторе.
+        _driver!.ExecuteScript(
+            "mobile: clickGesture",
+            new Dictionary<string, object>
+            {
+                ["x"] = 540,
+                ["y"] = 520
+            });
+
+        Thread.Sleep(700);
+
+        return _driver.PageSource;
+    }
 
     public string TestBackFromVisibility()
     {
@@ -227,7 +259,18 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver.PageSource;
     }
 
+    public string TestBackFromAudience()
+    {
+        Connect();
 
+        var backButton = _driver!.FindElement(
+            By.XPath("//*[@content-desc='Back' and @clickable='true']"));
+
+        backButton.Click();
+        Thread.Sleep(700);
+
+        return _driver.PageSource;
+    }
 
     public string TestSetCaption(string caption)
     {
@@ -255,7 +298,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver.PageSource;
     }
 
-
     public string TestOpenSelectAudience()
     {
         Connect();
@@ -278,7 +320,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
 
         return _driver.PageSource;
     }
-
 
     public string TestSelectNotMadeForKids()
     {
@@ -318,7 +359,84 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver.PageSource;
     }
 
+    public string PublishVideoOnYouTubeAsync(
+        string fileName,
+        string caption)
+    {
+        if (string.IsNullOrWhiteSpace(fileName))
+            throw new ArgumentException("Video filename is required.", nameof(fileName));
 
+        if (string.IsNullOrWhiteSpace(caption))
+            throw new ArgumentException("Caption is required.", nameof(caption));
+
+        Connect();
+        _driver!.ActivateApp("com.google.android.youtube");
+        Thread.Sleep(1200);
+
+        // 1. Открываем меню создания.
+        var createButton = _driver.FindElement(
+            By.XPath("//*[@content-desc='Create' and @clickable='true']"));
+        createButton.Click();
+        Thread.Sleep(1000);
+
+        // 2. Выбираем Short, если он ещё не выбран.
+        var shortButton = _driver.FindElement(
+            By.Id("com.google.android.youtube:id/creation_mode_button"));
+
+        if (!string.Equals(
+                shortButton.GetAttribute("selected"),
+                "true",
+                StringComparison.OrdinalIgnoreCase))
+        {
+            shortButton.Click();
+            Thread.Sleep(700);
+        }
+
+        // 3. Открываем галерею.
+        var galleryButton = _driver.FindElement(
+            By.Id("com.google.android.youtube:id/unified_permissions_primary_button"));
+
+        if (galleryButton.Text != "Add from Gallery")
+            throw new InvalidOperationException(
+                $"Unexpected gallery button: '{galleryButton.Text}'.");
+
+        galleryButton.Click();
+        Thread.Sleep(1200);
+
+        // 4. Выбираем подготовленный файл.
+        TestSelectGalleryVideo(fileName);
+
+        // 5. Next из галереи.
+        TestNextFromGallery();
+
+        // 6. Done в редакторе Short.
+        TestDoneFromEditor();
+
+        // 7. Next на экране редактора Short.
+        TestNextFromShortsEditor();
+
+        // 8. Заполняем подпись.
+        var captionScreen = TestSetCaption(caption);
+
+        if (!captionScreen.Contains(caption, StringComparison.Ordinal))
+            throw new InvalidOperationException(
+                "Caption verification failed.");
+
+        // 9. Открываем настройки видимости и выбираем Public.
+        TestOpenFirstSettingsRow();
+        TestSelectPublicVisibility();
+        TestBackFromVisibility();
+
+        // 10. Открываем настройки аудитории и выбираем
+        // "No, it's not made for kids".
+        TestOpenSelectAudience();
+        TestSelectNotMadeForKids();
+        TestBackFromAudience();
+
+        // Возвращаем XML финального экрана настроек.
+        // Кнопка Upload video здесь намеренно НЕ нажимается.
+        return _driver.PageSource;
+    }
 
     private static string XPathLiteral(string value)
     {

@@ -1,4 +1,4 @@
-
+﻿
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
@@ -11,6 +11,7 @@ const int ExitBadArguments = 2;
 var startedAt = DateTimeOffset.UtcNow;
 string? taskId = null;
 string? filePath = null;
+string? caption = null;
 string? resultFile = null;
 var diagnoseUi = false;
 var testCreate = false;
@@ -27,6 +28,9 @@ var testBackFromVisibility = false;
 var testOpenSelectAudience = false;
 var testSelectNotMadeForKids = false;
 var testUploadShort = false;
+var testSelectPublicVisibility = false;
+var testBackFromAudience = false;
+var publishVideoOnYouTube = false;
 
 for (var i = 0; i < args.Length; i++)
 {
@@ -39,7 +43,9 @@ for (var i = 0; i < args.Length; i++)
         case "--file" when i + 1 < args.Length:
             filePath = args[++i];
             break;
-
+        case "--caption" when i + 1 < args.Length:
+            caption = args[++i];
+            break;
         case "--result-file" when i + 1 < args.Length:
             resultFile = args[++i];
             break;
@@ -77,8 +83,14 @@ for (var i = 0; i < args.Length; i++)
         case "--test-open-first-settings-row":
             testOpenFirstSettingsRow = true;
             break;
+        case "--test-select-public-visibility":
+            testSelectPublicVisibility = true;
+            break;
         case "--test-back-from-visibility":
             testBackFromVisibility = true;
+            break;
+        case "--test-back-from-audience":
+            testBackFromAudience = true;
             break;
         case "--test-open-select-audience":
             testOpenSelectAudience = true;
@@ -89,7 +101,9 @@ for (var i = 0; i < args.Length; i++)
         case "--test-upload-short":
             testUploadShort = true;
             break;
-
+        case "--publish-video-youtube":
+            publishVideoOnYouTube = true;
+            break;
         case "--help":
         case "-h":
             PrintUsage();
@@ -135,8 +149,8 @@ var options =
     configuration.GetSection("Publisher").Get<PublisherOptions>()
     ?? new PublisherOptions();
 
-// Диагностический режим: подключается к Android и читает экран.
-// Видео не загружает и публикацию не выполняет.
+// Р”РёР°РіРЅРѕСЃС‚РёС‡РµСЃРєРёР№ СЂРµР¶РёРј: РїРѕРґРєР»СЋС‡Р°РµС‚СЃСЏ Рє Android Рё С‡РёС‚Р°РµС‚ СЌРєСЂР°РЅ.
+// Р’РёРґРµРѕ РЅРµ Р·Р°РіСЂСѓР¶Р°РµС‚ Рё РїСѓР±Р»РёРєР°С†РёСЋ РЅРµ РІС‹РїРѕР»РЅСЏРµС‚.
 if (diagnoseUi)
 {
     try
@@ -384,13 +398,107 @@ if (testUploadShort)
     }
 }
 
+if (publishVideoOnYouTube)
+{
+    try
+    {
+        if (string.IsNullOrWhiteSpace(caption))
+        {
+            Console.Error.WriteLine(
+                "Укажите подпись через --caption \"Текст подписи\"");
+            return ExitBadArguments;
+        }
+
+        if (string.IsNullOrWhiteSpace(filePath))
+        {
+            Console.Error.WriteLine(
+                "Укажите видео через --file \"videos\\ferroli.mp4\"");
+            return ExitBadArguments;
+        }
+
+        filePath = Path.GetFullPath(filePath);
+
+        if (!File.Exists(filePath))
+        {
+            Console.Error.WriteLine(
+                $"Видео не найдено: {filePath}");
+            return ExitBadArguments;
+        }
+
+        var adb = new AdbClient(options.AdbPath);
+        var devices = await adb.DevicesAsync(CancellationToken.None);
+
+        if (!devices.Split('\n').Any(line =>
+                line.Trim().StartsWith(
+                    options.DeviceId + "\tdevice",
+                    StringComparison.Ordinal)))
+        {
+            throw new InvalidOperationException(
+                $"Android-устройство '{options.DeviceId}' не готово. {devices}");
+        }
+
+        var remotePath =
+            $"{options.AndroidMediaDirectory.TrimEnd('/')}/{Path.GetFileName(filePath)}";
+
+        await adb.ShellAsync(
+            options.DeviceId,
+            CancellationToken.None,
+            "mkdir", "-p", options.AndroidMediaDirectory);
+
+        await adb.PushAsync(
+            options.DeviceId,
+            filePath,
+            remotePath,
+            CancellationToken.None);
+
+        await adb.ShellAsync(
+            options.DeviceId,
+            CancellationToken.None,
+            "am", "broadcast",
+            "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+            "-d", $"file://{remotePath}");
+
+        using var automation = new ShortsUploadAutomation(options);
+
+        var pageSource = automation.PublishVideoOnYouTubeAsync(
+            Path.GetFileName(filePath),
+            caption);
+
+        var outputPath = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "appium-ferroli-posting-details.xml");
+
+        await File.WriteAllTextAsync(outputPath, pageSource);
+
+        Console.WriteLine(
+            $"Подготовка видео завершена. XML экрана сохранён: {outputPath}");
+        Console.WriteLine(
+            "Публикация НЕ выполнялась. Кнопка Upload video не нажималась.");
+
+        return ExitSuccess;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"Подготовка видео для YouTube не удалась: {ex}");
+        return ExitFailure;
+    }
+}
+
+
 if (testSetCaption)
 {
     try
     {
+        if (string.IsNullOrWhiteSpace(caption))
+        {
+            Console.Error.WriteLine(
+                "Укажите текст через --caption \"Текст подписи\"");
+            return ExitBadArguments;
+        }
+
         using var automation = new ShortsUploadAutomation(options);
 
-        const string caption = "Красный сигнал ночью 🚨 #shorts";
         var pageSource = automation.TestSetCaption(caption);
 
         var outputPath = Path.Combine(
@@ -399,14 +507,15 @@ if (testSetCaption)
 
         await File.WriteAllTextAsync(outputPath, pageSource);
 
-        Console.WriteLine($"Caption test completed. XML saved: {outputPath}");
-        var captionVerified =
-            pageSource.Contains("Красный сигнал ночью") &&
-            pageSource.Contains("#shorts");
+        Console.WriteLine(
+            $"Caption test completed. XML saved: {outputPath}");
 
-        Console.WriteLine($"Caption found in screen XML: {captionVerified}");
+        var captionVerified = pageSource.Contains(caption);
 
-        return ExitSuccess;
+        Console.WriteLine(
+            $"Caption found in screen XML: {captionVerified}");
+
+        return captionVerified ? ExitSuccess : ExitFailure;
     }
     catch (Exception ex)
     {
@@ -471,6 +580,36 @@ if (testOpenFirstSettingsRow)
 }
 
 
+if (testSelectPublicVisibility)
+{
+    try
+    {
+        using var automation = new ShortsUploadAutomation(options);
+
+        Console.WriteLine("Selecting Public visibility...");
+        var pageSource = automation.TestSelectPublicVisibility();
+
+        var outputPath = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "appium-public-visibility.xml");
+
+        await File.WriteAllTextAsync(outputPath, pageSource);
+
+        Console.WriteLine($"Screen saved to: {outputPath}");
+        Console.WriteLine($"XML length: {pageSource.Length}");
+
+        return ExitSuccess;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"Public visibility selection failed: {ex}");
+
+        return ExitFailure;
+    }
+}
+
+
 if (testBackFromVisibility)
 {
     try
@@ -480,7 +619,7 @@ if (testBackFromVisibility)
 
         var outputPath = Path.Combine(
             Directory.GetCurrentDirectory(),
-            "appium-after-back.xml");
+            "appium-after-visibility-back.xml");
 
         await File.WriteAllTextAsync(outputPath, pageSource);
 
@@ -492,6 +631,33 @@ if (testBackFromVisibility)
     catch (Exception ex)
     {
         Console.Error.WriteLine($"Back navigation failed: {ex.Message}");
+        return ExitFailure;
+    }
+}
+
+if (testBackFromAudience)
+{
+    try
+    {
+        using var automation = new ShortsUploadAutomation(options);
+        var pageSource = automation.TestBackFromAudience();
+
+        var outputPath = Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "appium-after-audience-back.xml");
+
+        await File.WriteAllTextAsync(outputPath, pageSource);
+
+        Console.WriteLine($"Screen saved to: {outputPath}");
+        Console.WriteLine($"XML length: {pageSource.Length}");
+
+        return ExitSuccess;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine(
+            $"Back from audience test failed: {ex}");
+
         return ExitFailure;
     }
 }
@@ -551,7 +717,7 @@ if (testSelectNotMadeForKids)
 
 
 
-// В обычном режиме файл обязателен.
+// Р’ РѕР±С‹С‡РЅРѕРј СЂРµР¶РёРјРµ С„Р°Р№Р» РѕР±СЏР·Р°С‚РµР»РµРЅ.
 if (string.IsNullOrWhiteSpace(filePath))
 {
     PrintUsage();
@@ -760,7 +926,7 @@ static async Task<int> EmitAsync(
 static void PrintUsage()
 {
     Console.Error.WriteLine("""
-    ShortsPublisher — one invocation processes one video.
+    ShortsPublisher вЂ” one invocation processes one video.
 
     Usage:
       ShortsPublisher.exe --file "C:\videos\clip.mp4" [--task-id 123] [--result-file "C:\results\123.json"]
@@ -784,3 +950,4 @@ public sealed record JobResult(
     string? Sha256,
     DateTimeOffset StartedAtUtc,
     DateTimeOffset CompletedAtUtc);
+
