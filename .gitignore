@@ -14,6 +14,12 @@ node_modules/
 # Local Appium drivers and extensions
 .appium/
 
+# Diagnostics
+diagnostics/
+
+# Videos
+videos/
+
 # Environment and secrets
 .env
 .env.*
