@@ -31,6 +31,7 @@ var testUploadShort = false;
 var testSelectPublicVisibility = false;
 var testBackFromAudience = false;
 var publishVideoOnYouTube = false;
+var verifyUpload = false;
 
 for (var i = 0; i < args.Length; i++)
 {
@@ -104,6 +105,9 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-youtube":
             publishVideoOnYouTube = true;
             break;
+        case "--verify-upload":
+            verifyUpload = true;
+            break;
         case "--help":
         case "-h":
             PrintUsage();
@@ -149,8 +153,29 @@ var options =
     configuration.GetSection("Publisher").Get<PublisherOptions>()
     ?? new PublisherOptions();
 
-// Р”РёР°РіРЅРѕСЃС‚РёС‡РµСЃРєРёР№ СЂРµР¶РёРј: РїРѕРґРєР»СЋС‡Р°РµС‚СЃСЏ Рє Android Рё С‡РёС‚Р°РµС‚ СЌРєСЂР°РЅ.
-// Р’РёРґРµРѕ РЅРµ Р·Р°РіСЂСѓР¶Р°РµС‚ Рё РїСѓР±Р»РёРєР°С†РёСЋ РЅРµ РІС‹РїРѕР»РЅСЏРµС‚.
+if (verifyUpload)
+{
+    if (string.IsNullOrWhiteSpace(caption))
+    {
+        Console.Error.WriteLine("Укажите подпись опубликованного Short через --caption \"Текст подписи\"");
+        return ExitBadArguments;
+    }
+
+    try
+    {
+        using var automation = new ShortsUploadAutomation(options);
+        var verification = automation.VerifyUploadedShort(caption);
+
+        Console.WriteLine(verification.Message);
+        return verification.Confirmed ? ExitSuccess : ExitFailure;
+    }
+    catch (Exception ex)
+    {
+        Console.Error.WriteLine($"Upload verification failed: {ex.Message}");
+        return ExitFailure;
+    }
+}
+
 if (diagnoseUi)
 {
     try
@@ -159,14 +184,22 @@ if (diagnoseUi)
 
         var pageSource = automation.ReadCurrentScreen();
 
-        var outputPath = Path.Combine(
+        var diagnosticsDirectory = Path.Combine(
             Directory.GetCurrentDirectory(),
-            "appium-screen.xml");
+            "diagnostics");
 
-        await File.WriteAllTextAsync(outputPath, pageSource);
+        Directory.CreateDirectory(diagnosticsDirectory);
 
-        Console.WriteLine($"Screen hierarchy saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
+        var timestamp = DateTimeOffset.Now.ToString(
+            "yyyyMMdd_HHmmss_fff");
+
+        var snapshotPath = Path.Combine(
+            diagnosticsDirectory,
+            $"snapshot_{timestamp}.xml");
+
+        File.WriteAllText(snapshotPath, pageSource);
+
+        Console.WriteLine($"UI XML snapshot saved: {snapshotPath}");
 
         return ExitSuccess;
     }
@@ -189,15 +222,6 @@ if (testCreate)
         Console.WriteLine("Looking for the YouTube Create button...");
         var pageSource = automation.TestCreateButton();
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-create-menu.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Create menu hierarchy saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -216,15 +240,6 @@ if (testGallery)
 
         Console.WriteLine("Opening Add from Gallery...");
         var pageSource = automation.TestAddFromGallery();
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-gallery.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Gallery screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
 
         return ExitSuccess;
     }
@@ -249,15 +264,6 @@ if (testSelectVideo)
 
         var pageSource = automation.TestSelectGalleryVideo(fileName);
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-selected-video.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Selected-video screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -275,15 +281,6 @@ if (testNext)
 
         Console.WriteLine("Moving to the next YouTube screen...");
         var pageSource = automation.TestNextFromGallery();
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-next-screen.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Next screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
 
         return ExitSuccess;
     }
@@ -304,15 +301,6 @@ if (testDone)
         Console.WriteLine("Pressing Done on the Shorts editor screen...");
         var pageSource = automation.TestDoneFromEditor();
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-done-screen.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Done screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -331,15 +319,6 @@ if (testEditorNext)
         Console.WriteLine("Moving from Shorts editor to posting details...");
         var pageSource = automation.TestNextFromShortsEditor();
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-posting-details.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Posting details screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -355,15 +334,6 @@ if (testShowMore)
     {
         using var automation = new ShortsUploadAutomation(options);
         var pageSource = automation.TestShowMoreDetails();
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-show-more.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Saved: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -380,14 +350,6 @@ if (testUploadShort)
         using var automation = new ShortsUploadAutomation(options);
 
         var pageSource = automation.TestUploadShort();
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-after-upload-short.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen hierarchy saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
 
         return ExitSuccess;
     }
@@ -460,28 +422,42 @@ if (publishVideoOnYouTube)
 
         using var automation = new ShortsUploadAutomation(options);
 
-        var pageSource = automation.PublishVideoOnYouTubeAsync(
+        var observation = automation.PublishVideoOnYouTubeAsync(
             Path.GetFileName(filePath),
             caption);
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-ferroli-posting-details.xml");
+        var result = new JobResult(
+            taskId,
+            observation.Status,
+            observation.Published,
+            observation.Published,
+            filePath,
+            observation.Message,
+            null,
+            startedAt,
+            DateTimeOffset.UtcNow);
 
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine(
-            $"Подготовка видео завершена. XML экрана сохранён: {outputPath}");
-        Console.WriteLine(
-            "Публикация НЕ выполнялась. Кнопка Upload video не нажималась.");
-
-        return ExitSuccess;
+        return await EmitAsync(
+            result,
+            resultFile,
+            observation.Published ? ExitSuccess : ExitFailure);
     }
     catch (Exception ex)
     {
-        Console.Error.WriteLine(
-            $"Подготовка видео для YouTube не удалась: {ex}");
-        return ExitFailure;
+        Console.Error.WriteLine($"Публикация или наблюдение за статусом завершились ошибкой: {ex.Message}");
+
+        var result = new JobResult(
+            taskId,
+            "failed",
+            false,
+            false,
+            filePath,
+            ex.Message,
+            null,
+            startedAt,
+            DateTimeOffset.UtcNow);
+
+        return await EmitAsync(result, resultFile, ExitFailure);
     }
 }
 
@@ -500,15 +476,6 @@ if (testSetCaption)
         using var automation = new ShortsUploadAutomation(options);
 
         var pageSource = automation.TestSetCaption(caption);
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-caption.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine(
-            $"Caption test completed. XML saved: {outputPath}");
 
         var captionVerified = pageSource.Contains(caption);
 
@@ -537,8 +504,6 @@ if (inspectSettings)
             "appium-settings-rows.txt");
 
         await File.WriteAllTextAsync(outputPath, result);
-
-        Console.WriteLine($"Settings rows saved to: {outputPath}");
         Console.WriteLine(result);
 
         return ExitSuccess;
@@ -557,15 +522,6 @@ if (testOpenFirstSettingsRow)
     {
         using var automation = new ShortsUploadAutomation(options);
         var pageSource = automation.TestOpenFirstSettingsRow();
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-visibility-menu.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
 
         Console.WriteLine(
             $"Contains Public: {pageSource.Contains("Public", StringComparison.OrdinalIgnoreCase)}");
@@ -589,15 +545,6 @@ if (testSelectPublicVisibility)
         Console.WriteLine("Selecting Public visibility...");
         var pageSource = automation.TestSelectPublicVisibility();
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-public-visibility.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -617,15 +564,6 @@ if (testBackFromVisibility)
         using var automation = new ShortsUploadAutomation(options);
         var pageSource = automation.TestBackFromVisibility();
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-after-visibility-back.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -641,15 +579,6 @@ if (testBackFromAudience)
     {
         using var automation = new ShortsUploadAutomation(options);
         var pageSource = automation.TestBackFromAudience();
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-after-audience-back.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
 
         return ExitSuccess;
     }
@@ -670,15 +599,6 @@ if (testOpenSelectAudience)
         using var automation = new ShortsUploadAutomation(options);
         var pageSource = automation.TestOpenSelectAudience();
 
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-audience-menu.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
-
         return ExitSuccess;
     }
     catch (Exception ex)
@@ -695,15 +615,6 @@ if (testSelectNotMadeForKids)
     {
         using var automation = new ShortsUploadAutomation(options);
         var pageSource = automation.TestSelectNotMadeForKids();
-
-        var outputPath = Path.Combine(
-            Directory.GetCurrentDirectory(),
-            "appium-audience-after-selection.xml");
-
-        await File.WriteAllTextAsync(outputPath, pageSource);
-
-        Console.WriteLine($"Screen saved to: {outputPath}");
-        Console.WriteLine($"XML length: {pageSource.Length}");
 
         return ExitSuccess;
     }
@@ -849,21 +760,20 @@ try
         metadata?.MadeForKids ?? options.DefaultMadeForKids,
         CancellationToken.None);
 
-    var status = options.DryRun
-        ? "dry_run_completed"
-        : "published";
-
-    var message = options.DryRun
-        ? "Validation and ADB transfer succeeded. Dry run only: YouTube publication was not attempted."
-        : "Publication completed and verified.";
+    var verification = automation.VerifyUploadedShort(title);
+    if (!verification.Confirmed)
+    {
+        throw new InvalidOperationException(
+            "Publication was not confirmed: " + verification.Message);
+    }
 
     var result = new JobResult(
         taskId,
-        status,
+        "published",
         true,
-        !options.DryRun,
+        true,
         filePath,
-        message,
+        verification.Message,
         sha256,
         startedAt,
         DateTimeOffset.UtcNow);
@@ -939,6 +849,7 @@ static void PrintUsage()
       .mp4, .mov, .m4v
 
     Diagnostic commands:
+      --verify-upload --caption "Exact Short caption"   Verify an existing Short; does not publish or save XML.
       --diagnose-ui
       --test-create
       --test-gallery
@@ -960,7 +871,7 @@ static void PrintUsage()
       2 = invalid arguments.
 
     Notes:
-      DryRun=true validates and transfers the video without publishing.
+      --verify-upload only checks an existing Short; it does not publish.
       --test-upload-short can trigger the actual publication action.
       Do not use it without explicit authorization.
     """);
