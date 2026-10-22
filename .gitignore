@@ -16,6 +16,8 @@ node_modules/
 
 # Diagnostics
 diagnostics/
+upload-short-snapshots/
+
 
 # Videos
 videos/
