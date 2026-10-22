@@ -18,54 +18,9 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
     private AndroidDriver? _driver;
     private readonly PublisherOptions _options = options;
 
-    public Task PublishShortAsync(
-        string androidPath,
-        string title,
-        string description,
-        string visibility,
-        bool madeForKids,
-        CancellationToken ct)
-    {
-        ct.ThrowIfCancellationRequested();
-
-        // Open an Appium session so the configured device is reachable.
-        // This method intentionally does not attempt a live upload.
-        Connect();
-
-        throw new InvalidOperationException(
-            "LIVE_UPLOAD_NOT_IMPLEMENTED: UI selectors have not been verified. " +
-            "No publication confirmation was issued.");
-    }
-
-    public string ReadCurrentScreen()
-    {
-        Connect();
-        return _driver!.PageSource;
-    }
-
     /// <summary>
     /// Verifies an already uploaded Short without clicking Upload or writing screen XML.
     /// </summary>
-    public (bool Confirmed, string Message) VerifyUploadedShort(string expectedCaption)
-    {
-        Connect();
-
-        // Use the same explicit YouTube UI confirmation as the publish flow.
-        // Caption matching and uniqueness are not required because captions may repeat.
-        var pageSource = _driver!.PageSource;
-        var observation = AnalyzeUploadScreen(pageSource, expectedCaption);
-        var confirmed = observation.ExplicitPublicationConfirmation;
-        var message = confirmed
-            ? "YouTube подтвердил публикацию: 'Uploaded to Your Channel', 'Share video' и 'You: Video uploaded'."
-            : "Явное подтверждение публикации не найдено. Проверьте свежие XML-снимки в diagnostics.";
-
-        Console.WriteLine(confirmed
-            ? "[ПУБЛИКАЦИЯ ПОДТВЕРЖДЕНА] " + message
-            : "[ПУБЛИКАЦИЯ НЕ ПОДТВЕРЖДЕНА] " + message);
-        return (confirmed, message);
-    }
-
-
     public string OpenYouTube()
     {
         Connect();
@@ -73,45 +28,9 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver!.PageSource;
     }
 
-    public string TestCreateButton()
-    {
-        OpenYouTube();
-
-        var createButton = _driver!.FindElement(
-            By.XPath(
-                "//*[@content-desc='Create' and @clickable='true']"));
-
-        createButton.Click();
-        Thread.Sleep(1500);
-
-        return _driver.PageSource;
-    }
-
-    public string TestAddFromGallery()
-    {
-        Connect();
-
-        var galleryButton = _driver!.FindElement(
-            By.Id("com.google.android.youtube:id/unified_permissions_primary_button"));
-
-        if (galleryButton.Text != "Add from Gallery")
-        {
-            throw new InvalidOperationException(
-                $"Unexpected button text: '{galleryButton.Text}'.");
-        }
-
-        galleryButton.Click();
-        Thread.Sleep(1500);
-
-        return _driver.PageSource;
-    }
-
     public string TestSelectGalleryVideo(string fileName)
     {
         Connect();
-
-        var video = _driver!.FindElement(
-            By.XPath("//*[@content-desc=" + XPathLiteral(fileName) + "]"));
 
         var clickableContainer = _driver.FindElement(
             By.XPath(
@@ -180,42 +99,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         Thread.Sleep(2000);
 
         return _driver.PageSource;
-    }
-
-    public string TestShowMoreDetails()
-    {
-        Connect();
-
-        var showMore = _driver!.FindElement(
-            By.XPath("//*[@content-desc='Show more']"));
-
-        showMore.Click();
-        Thread.Sleep(1000);
-
-        return _driver.PageSource;
-    }
-
-
-    public string InspectSettingsRows()
-    {
-        Connect();
-
-        var rows = _driver!.FindElements(
-            By.XPath("//*[@clickable='true' and @bounds]"));
-
-        var result = new System.Text.StringBuilder();
-
-        foreach (var row in rows)
-        {
-            var bounds = row.GetAttribute("bounds");
-            var text = row.Text;
-            var description = row.GetAttribute("content-desc");
-
-            result.AppendLine(
-                $"Bounds={bounds} | Text={text} | Description={description}");
-        }
-
-        return result.ToString();
     }
 
     public string TestOpenFirstSettingsRow()
@@ -355,54 +238,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver.PageSource;
     }
 
-    public string TestUploadShort()
-    {
-        // Нажимает Upload один раз и сохраняет только XML-снимки экрана.
-        ClickUploadAndCaptureDiagnostics(TimeSpan.FromMinutes(4));
-        return _driver!.PageSource;
-    }
-
-    private void ClickUploadAndCaptureDiagnostics(TimeSpan duration)
-    {
-        Connect();
-
-        var uploadButton = _driver!.FindElement(
-            By.Id("com.google.android.youtube:id/upload_bottom_button"));
-
-        if (!uploadButton.Displayed || !uploadButton.Enabled)
-            throw new InvalidOperationException(
-                "Upload Short button is not visible or enabled. Nothing was clicked.");
-
-        var diagnosticsDirectory = Path.Combine(
-            Directory.GetCurrentDirectory(), "diagnostics");
-        Directory.CreateDirectory(diagnosticsDirectory);
-
-        uploadButton.Click();
-        var stopwatch = Stopwatch.StartNew();
-        var interval = TimeSpan.FromSeconds(8);
-
-        while (true)
-        {
-            try
-            {
-                var pageSource = _driver.PageSource;
-                var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-                var snapshotPath = Path.Combine(diagnosticsDirectory, $"upload_{timestamp}.xml");
-                File.WriteAllText(snapshotPath, pageSource);
-            }
-            catch
-            {
-                // Ошибка отдельного снимка не должна прерывать наблюдение после Upload.
-            }
-
-            var remaining = duration - stopwatch.Elapsed;
-            if (remaining <= TimeSpan.Zero)
-                break;
-
-            Thread.Sleep(remaining < interval ? remaining : interval);
-        }
-    }
-
     public UploadObservationResult PublishVideoOnYouTubeAsync(
         string fileName,
         string caption)
@@ -433,7 +268,7 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
 
         if (galleryButton == null)
         {
-            throw CreateUiDiagnosticException(
+            throw CreateUiStateException(
                 "После выбора Short не появился активный элемент Add from Gallery.");
         }
 
@@ -442,7 +277,7 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         if (!galleryButtonText.Contains("Gallery", StringComparison.OrdinalIgnoreCase) &&
             !galleryButtonDescription.Contains("Gallery", StringComparison.OrdinalIgnoreCase))
         {
-            throw CreateUiDiagnosticException(
+            throw CreateUiStateException(
                 $"Найден элемент галереи с неожиданной подписью: text='{galleryButtonText}', " +
                 $"content-desc='{galleryButtonDescription}'.");
         }
@@ -481,9 +316,6 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
             throw new InvalidOperationException(
                 "Upload Short button is not visible or enabled. Nothing was clicked.");
 
-        // Создаём каталог до нажатия Upload, чтобы подготовка диагностики
-        // не могла сорваться уже после запуска публикации.
-        Directory.CreateDirectory(Path.Combine(Directory.GetCurrentDirectory(), "diagnostics"));
         uploadButton.Click();
 
         return ObserveUploadStatus(expectedCaption, timeout);
@@ -493,7 +325,7 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
     {
         const int intervalSeconds = 8;
         var timer = Stopwatch.StartNew();
-        var snapshots = 0;
+        var screenReads = 0;
         var matchingCardCount = 0;
         var sawUploadIndicator = false;
         var lastObservation = "Waiting for YouTube's post-upload screen.";
@@ -504,34 +336,15 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
             try
             {
                 pageSource = _driver!.PageSource;
-                snapshots++;
+                screenReads++;
 
-                // XML snapshots every 8 seconds for the first 4 minutes.
-                // Snapshot errors must not interrupt an upload already in progress.
-                if (timer.Elapsed <= TimeSpan.FromMinutes(4))
-                {
-                    try
-                    {
-                        var diagnosticsDirectory = Path.Combine(
-                            Directory.GetCurrentDirectory(), "diagnostics");
-                        Directory.CreateDirectory(diagnosticsDirectory);
-                        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
-                        var snapshotPath = Path.Combine(
-                            diagnosticsDirectory, $"upload_{timestamp}.xml");
-                        File.WriteAllText(snapshotPath, pageSource);
-                    }
-                    catch
-                    {
-                        // XML diagnostics are best-effort; no console noise.
-                    }
-                }
             }
             catch (Exception ex)
             {
                 return ReportUploadResult(new UploadObservationResult(
                     "publication_unknown", false,
                     $"Could not read YouTube status after the Upload click: {ex.Message}",
-                    snapshots, matchingCardCount, timer.Elapsed));
+                    screenReads, matchingCardCount, timer.Elapsed));
             }
 
             var observation = AnalyzeUploadScreen(pageSource, expectedCaption);
@@ -546,14 +359,14 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
                     "'Share video' и 'You: Video uploaded'. Это подтверждает состояние UI; " +
                     "публичную доступность с другого аккаунта отдельно не проверяет.";
                 return ReportUploadResult(new UploadObservationResult(
-                    "published", true, message, snapshots, matchingCardCount, timer.Elapsed));
+                    "published", true, message, screenReads, matchingCardCount, timer.Elapsed));
             }
 
             if (observation.FailureDetected)
             {
                 var message = $"YouTube shows a possible upload error: {observation.FailureText}";
                 return ReportUploadResult(new UploadObservationResult(
-                    "upload_failed", false, message, snapshots, matchingCardCount, timer.Elapsed));
+                    "upload_failed", false, message, screenReads, matchingCardCount, timer.Elapsed));
             }
 
             if (observation.UploadIndicatorVisible)
@@ -578,22 +391,21 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         }
 
         var finalMessage = $"Не удалось получить явное подтверждение публикации за {timeout.TotalMinutes:F0} мин. " +
-            $"Последнее состояние: {lastObservation} Снимков экрана: {snapshots}. " +
-            "XML-снимки сохранялись в diagnostics в течение первых 4 минут, если чтение экрана прошло успешно.";
+            $"Последнее состояние: {lastObservation}";
         return ReportUploadResult(new UploadObservationResult(
             "publication_unconfirmed", false, finalMessage,
-            snapshots, matchingCardCount, timer.Elapsed));
+            screenReads, matchingCardCount, timer.Elapsed));
     }
 
     private static UploadObservationResult ReportUploadResult(UploadObservationResult result)
     {
         if (result.Published)
         {
-            Console.WriteLine("[ПУБЛИКАЦИЯ ПОДТВЕРЖДЕНА] " + result.Message);
+            Console.Error.WriteLine("[ПУБЛИКАЦИЯ ПОДТВЕРЖДЕНА] " + result.Message);
         }
         else
         {
-            Console.WriteLine($"[ПУБЛИКАЦИЯ НЕ ПОДТВЕРЖДЕНА: {result.Status}] " + result.Message);
+            Console.Error.WriteLine($"[ПУБЛИКАЦИЯ НЕ ПОДТВЕРЖДЕНА: {result.Status}] " + result.Message);
         }
 
         return result;
@@ -629,7 +441,7 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
                 && shareVideoAvailable
                 && videoUploadedStatus;
 
-            // Caption matching is diagnostic only. It is never a publication gate.
+            // Caption matching is informational only; explicit YouTube confirmation is the publication gate.
             if (!string.IsNullOrWhiteSpace(expectedCaption))
             {
                 matchingCardCount = document.Descendants()
@@ -761,7 +573,7 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
 
         if (visibleCandidates.Count == 0)
         {
-            throw CreateUiDiagnosticException(
+            throw CreateUiStateException(
                 "Не найден доступный для нажатия пункт Short. " +
                 "Автоматизация не будет нажимать переключатель Video наугад.");
         }
@@ -775,48 +587,13 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
 
         if (!galleryVisible)
         {
-            throw CreateUiDiagnosticException(
+            throw CreateUiStateException(
                 "Нажат пункт Short, но экран Shorts с кнопкой Add from Gallery не открылся.");
         }
     }
 
-    private InvalidOperationException CreateUiDiagnosticException(string message)
-    {
-        try
-        {
-            _ = _driver?.PageSource; // Read in memory only; never persist screen XML.
-        }
-        catch
-        {
-            // Основная ошибка важнее дополнительной диагностики.
-        }
-
-        string clickableSummary = string.Empty;
-        try
-        {
-            clickableSummary = string.Join(
-                Environment.NewLine,
-                _driver!.FindElements(By.XPath("//*[@clickable='true']"))
-                    .Where(element => element.Displayed)
-                    .Select(element =>
-                    {
-                        var text = (element.Text ?? string.Empty).Trim();
-                        var description = (element.GetAttribute("content-desc") ?? string.Empty).Trim();
-                        var id = element.GetAttribute("resource-id") ?? string.Empty;
-                        return $"text='{text}', desc='{description}', id='{id}'";
-                    })
-                    .Where(line => line != "text='', desc='', id=''")
-                    .Take(40));
-        }
-        catch
-        {
-            clickableSummary = "Не удалось получить список clickable-элементов.";
-        }
-
-        var details = message + Environment.NewLine +
-                      "Видимые clickable-элементы:" + Environment.NewLine + clickableSummary;
-        return new InvalidOperationException(details);
-    }
+    private static InvalidOperationException CreateUiStateException(string message) =>
+        new(message);
 
     private static string XPathLiteral(string value)
     {
