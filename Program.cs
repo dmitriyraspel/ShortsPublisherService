@@ -12,6 +12,7 @@ string? taskId = null;
 string? filePath = null;
 string? caption = null;
 string? resultFile = null;
+bool openInstagram = false;
 
 // Kept for backwards compatibility with the verified invocation. Publishing is
 // now the normal processing path, whether or not this switch is supplied.
@@ -33,6 +34,9 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "--publish-video-youtube":
             break;
+        case "--open-instagram":
+            openInstagram = true;
+            break;
         case "--help":
         case "-h":
             PrintUsage();
@@ -45,7 +49,7 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (string.IsNullOrWhiteSpace(filePath))
+if (!openInstagram && string.IsNullOrWhiteSpace(filePath))
 {
     return await EmitAsync(
         Failure(taskId, "invalid_arguments", "Required argument --file was not provided.", startedAt),
@@ -53,7 +57,8 @@ if (string.IsNullOrWhiteSpace(filePath))
         ExitBadArguments);
 }
 
-filePath = Path.GetFullPath(filePath);
+if (!string.IsNullOrWhiteSpace(filePath))
+    filePath = Path.GetFullPath(filePath);
 
 try
 {
@@ -64,7 +69,27 @@ try
         .Build();
     var options = configuration.GetSection("Publisher").Get<PublisherOptions>() ?? new PublisherOptions();
 
-    if (!File.Exists(filePath))
+    if (openInstagram)
+    {
+        using var instagramAutomation = new ShortsUploadAutomation(options);
+        instagramAutomation.OpenInstagram();
+
+        return await EmitAsync(
+            new JobResult(
+                taskId,
+                "instagram_opened",
+                true,
+                false,
+                null,
+                "Instagram opened.",
+                null,
+                startedAt,
+                DateTimeOffset.UtcNow),
+            resultFile,
+            ExitSuccess);
+    }
+
+    if (!File.Exists(filePath!))
         throw new FileNotFoundException("Input video file does not exist.", filePath);
 
     var extension = Path.GetExtension(filePath);
@@ -193,6 +218,7 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional path to save the JSON result.
       --publish-video-youtube  Backwards-compatible switch; publishing is the default.
+      --open-instagram     Open Instagram and return without publishing.
       --help, -h           Show this help.
 
     Exit codes:

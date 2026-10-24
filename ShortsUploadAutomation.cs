@@ -28,6 +28,15 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         return _driver!.PageSource;
     }
 
+    /// <summary>Opens Instagram using the existing Appium session.</summary>
+    public string OpenInstagram()
+    {
+        Connect();
+        _driver!.ActivateApp("com.instagram.android");
+        Thread.Sleep(1500);
+        return _driver.PageSource;
+    }
+
     public string TestSelectGalleryVideo(string fileName)
     {
         Connect();
