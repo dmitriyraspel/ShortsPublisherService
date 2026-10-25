@@ -16,6 +16,7 @@ bool diagnoseUi = false;
 bool openInstagram = false;
 bool instagramHome = false;
 bool instagramCreate = false;
+bool instagramSelectReel = false;
 
 
 
@@ -46,6 +47,9 @@ for (var i = 0; i < args.Length; i++)
         case "--instagram-create":
             instagramCreate = true;
             break;
+        case "--instagram-select-reel":
+            instagramSelectReel = true;
+            break;
         case "--diagnose-ui":
             diagnoseUi = true;
             break;
@@ -65,6 +69,8 @@ for (var i = 0; i < args.Length; i++)
 if (!openInstagram &&
     !instagramHome &&
     !instagramCreate &&
+    !instagramSelectReel &&
+    !diagnoseUi &&
     string.IsNullOrWhiteSpace(filePath))
 {
     return await EmitAsync(
@@ -92,8 +98,8 @@ try
 
     if (diagnoseUi)
     {
-        using var automation = new ShortsUploadAutomation(options);
-        var xmlPath = automation.SaveCurrentScreenXml();
+        using var diagnosticAutomation = new ShortsUploadAutomation(options);
+        var savedFile = diagnosticAutomation.SaveCurrentScreenXml();
 
         return await EmitAsync(
             new JobResult(
@@ -101,8 +107,8 @@ try
                 "diagnostics_saved",
                 true,
                 false,
-                xmlPath,
-                $"Current screen XML saved to: {xmlPath}",
+                savedFile,
+                $"Current screen XML saved to: {savedFile}",
                 null,
                 startedAt,
                 DateTimeOffset.UtcNow),
@@ -110,7 +116,7 @@ try
             ExitSuccess);
     }
 
-if (openInstagram || instagramHome || instagramCreate)
+if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
 {
     using var instagramAutomation = new ShortsUploadAutomation(options);
 
@@ -128,6 +134,12 @@ if (openInstagram || instagramHome || instagramCreate)
         instagramAutomation.instagramHome();
         status = "instagram_home";
         message = "Instagram Home button tapped.";
+    }
+    else if (instagramSelectReel)
+    {
+        instagramAutomation.instagramSelectReel();
+        status = "instagram_reel_selected";
+        message = "Instagram Reel tab tapped.";
     }
     else
     {

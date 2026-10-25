@@ -122,6 +122,102 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         RunAdb("shell", "input", "tap", "63", "205");
     }
 
+    public void instagramSelectReel()
+    {
+        // Получаем актуальную иерархию Android UI в памяти.
+        // Локальный XML-файл не создаётся.
+        const string remoteXmlPath = "/sdcard/shorts_publisher_screen.xml";
+
+        var dump = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "uiautomator", "dump", remoteXmlPath);
+
+        if (dump.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "Could not dump the current Android screen. " +
+                $"ExitCode={dump.ExitCode}; stdout={dump.StdOut}; stderr={dump.StdErr}");
+        }
+
+        var read = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "cat", remoteXmlPath);
+
+        // Удаляем временный XML с Android после чтения.
+        RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "rm", "-f", remoteXmlPath);
+
+        if (read.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "Could not read the Android UI XML. " +
+                $"ExitCode={read.ExitCode}; stderr={read.StdErr}");
+        }
+
+        if (string.IsNullOrWhiteSpace(read.StdOut))
+        {
+            throw new InvalidOperationException(
+                "Android returned an empty UI hierarchy.");
+        }
+
+        var document = XDocument.Parse(read.StdOut);
+
+        var reelNode = document
+            .Descendants("node")
+            .FirstOrDefault(node =>
+                (string?)node.Attribute("resource-id") ==
+                    "com.instagram.android:id/cam_dest_clips"
+                && ((string?)node.Attribute("text") == "REEL"
+                    || (string?)node.Attribute("content-desc") == "REEL")
+                && (string?)node.Attribute("clickable") == "true"
+                && (string?)node.Attribute("enabled") == "true");
+
+        if (reelNode is null)
+        {
+            throw new InvalidOperationException(
+                "Could not find an enabled, clickable REEL tab in the current Android UI.");
+        }
+
+        var bounds = (string?)reelNode.Attribute("bounds");
+        var match = System.Text.RegularExpressions.Regex.Match(
+            bounds ?? string.Empty,
+            @"\[(\d+),(\d+)\]\[(\d+),(\d+)\]");
+
+        if (!match.Success)
+        {
+            throw new InvalidOperationException(
+                $"Could not parse REEL tab bounds: {bounds}");
+        }
+
+        int left = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
+        int top = int.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
+        int right = int.Parse(match.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
+        int bottom = int.Parse(match.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
+
+        if (right <= left || bottom <= top)
+        {
+            throw new InvalidOperationException(
+                $"REEL tab has invalid bounds: {bounds}");
+        }
+
+        int centerX = left + (right - left) / 2;
+        int centerY = top + (bottom - top) / 2;
+
+        var tap = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "input", "tap",
+            centerX.ToString(System.Globalization.CultureInfo.InvariantCulture),
+            centerY.ToString(System.Globalization.CultureInfo.InvariantCulture));
+
+        if (tap.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "Could not tap the REEL tab. " +
+                $"ExitCode={tap.ExitCode}; stdout={tap.StdOut}; stderr={tap.StdErr}");
+        }
+    }
+
 
     public string TestSelectGalleryVideo(string fileName)
     {
