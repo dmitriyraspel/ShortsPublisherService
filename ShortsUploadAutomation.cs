@@ -18,6 +18,76 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
     private AndroidDriver? _driver;
     private readonly PublisherOptions _options = options;
 
+    
+    /// <summary>
+    /// Saves the XML accessibility hierarchy of the currently displayed
+    /// Android screen. Works independently of the foreground application.
+    /// </summary>
+    public string SaveCurrentScreenXml(string? outputDirectory = null)
+    {
+        outputDirectory ??= Path.Combine(
+            Directory.GetCurrentDirectory(),
+            "diagnostics");
+
+        Directory.CreateDirectory(outputDirectory);
+
+        var timestamp = DateTime.Now.ToString("yyyyMMdd_HHmmss_fff");
+        var outputPath = Path.GetFullPath(
+            Path.Combine(outputDirectory, $"screen_{timestamp}.xml"));
+
+        const string remotePath = "/sdcard/shorts_publisher_screen.xml";
+
+        // Ask Android to dump the UI hierarchy of the currently visible screen.
+        var dump = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "uiautomator", "dump", remotePath);
+
+        if (dump.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "Could not dump the current Android screen. " +
+                $"ExitCode={dump.ExitCode}; " +
+                $"stdout={dump.StdOut}; stderr={dump.StdErr}");
+        }
+
+        // Read the generated XML from the device.
+        var read = RunAdb(
+            "-s", _options.DeviceId,
+            "shell", "cat", remotePath);
+
+        if (read.ExitCode != 0)
+        {
+            throw new InvalidOperationException(
+                "Could not read the Android UI XML. " +
+                $"ExitCode={read.ExitCode}; stderr={read.StdErr}");
+        }
+
+        var xml = read.StdOut;
+
+        if (string.IsNullOrWhiteSpace(xml))
+        {
+            throw new InvalidOperationException(
+                "Android returned an empty UI hierarchy.");
+        }
+
+        // Validate the XML before saving it.
+        System.Xml.Linq.XDocument.Parse(xml);
+
+        File.WriteAllText(
+            outputPath,
+            xml,
+            new System.Text.UTF8Encoding(false));
+
+        return outputPath;
+    }
+
+
+    public string ReadCurrentScreen()
+    {
+        Connect();
+        return _driver!.PageSource;
+    }
+
     /// <summary>
     /// Verifies an already uploaded Short without clicking Upload or writing screen XML.
     /// </summary>
@@ -36,6 +106,22 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         Thread.Sleep(1500);
         return _driver.PageSource;
     }
+
+    
+    public void instagramHome()
+    {
+        // Кнопка Home в нижней панели Instagram.
+        // Центр элемента: x = 108, y = 2274.
+        RunAdb("shell", "input", "tap", "108", "2274");
+    }
+
+    public void instagramCreate()
+    {
+        // Верхняя левая кнопка Instagram.
+        // Центр элемента: x = 63, y = 205.
+        RunAdb("shell", "input", "tap", "63", "205");
+    }
+
 
     public string TestSelectGalleryVideo(string fileName)
     {
