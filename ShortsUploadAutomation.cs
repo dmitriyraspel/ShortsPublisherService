@@ -6,6 +6,7 @@ using OpenQA.Selenium.Appium.Android;
 
 using System.IO;
 using System.Threading;
+using System.Linq;
 using System.Xml.Linq;
 
 namespace ShortsPublisher;
@@ -115,12 +116,123 @@ public sealed class ShortsUploadAutomation(PublisherOptions options) : IDisposab
         RunAdb("shell", "input", "tap", "108", "2274");
     }
 
+    // перед create обязательно нажать Home иначе интерфейс другой
     public void instagramCreate()
     {
-        // Верхняя левая кнопка Instagram.
-        // Центр элемента: x = 63, y = 205.
-        RunAdb("shell", "input", "tap", "63", "205");
+        const string targetResourceId =
+            "com.instagram.android:id/action_bar_left_button";
+
+        const string remotePath = "/sdcard/shorts_publisher_screen.xml";
+
+        try
+        {
+            // Получаем актуальную иерархию экрана.
+            var dump = RunAdb(
+                "-s", _options.DeviceId,
+                "shell", "uiautomator", "dump", remotePath);
+
+            if (dump.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Не удалось получить XML экрана: {dump.StdErr}");
+            }
+
+            var read = RunAdb(
+                "-s", _options.DeviceId,
+                "shell", "cat", remotePath);
+
+            if (read.ExitCode != 0 ||
+                string.IsNullOrWhiteSpace(read.StdOut))
+            {
+                throw new InvalidOperationException(
+                    $"Не удалось прочитать XML экрана: {read.StdErr}");
+            }
+
+            var document = XDocument.Parse(read.StdOut);
+
+            // Ищем элемент по ID, а не по видимой надписи.
+            var matches = document
+                .Descendants("node")
+                .Where(node =>
+                    (string?)node.Attribute("resource-id") == targetResourceId &&
+                    (string?)node.Attribute("clickable") == "true" &&
+                    (string?)node.Attribute("enabled") == "true")
+                .ToList();
+
+            if (matches.Count != 1)
+            {
+                throw new InvalidOperationException(
+                    $"Ожидался ровно один доступный элемент " +
+                    $"{targetResourceId}, найдено: {matches.Count}. " +
+                    "Нажатие отменено.");
+            }
+
+            var bounds = (string?)matches[0].Attribute("bounds");
+
+            if (string.IsNullOrWhiteSpace(bounds))
+            {
+                throw new InvalidOperationException(
+                    "У найденного элемента отсутствует bounds. " +
+                    "Нажатие отменено.");
+            }
+
+            // Формат bounds: [x1,y1][x2,y2]
+            var parts = bounds.Trim('[', ']').Split("][");
+
+            if (parts.Length != 2)
+            {
+                throw new InvalidOperationException(
+                    $"Не удалось разобрать bounds: {bounds}");
+            }
+
+            var topLeft = parts[0].Split(',');
+            var bottomRight = parts[1].Split(',');
+
+            if (topLeft.Length != 2 ||
+                bottomRight.Length != 2 ||
+                !int.TryParse(topLeft[0], out var x1) ||
+                !int.TryParse(topLeft[1], out var y1) ||
+                !int.TryParse(bottomRight[0], out var x2) ||
+                !int.TryParse(bottomRight[1], out var y2))
+            {
+                throw new InvalidOperationException(
+                    $"Некорректные координаты элемента: {bounds}");
+            }
+
+            if (x2 <= x1 || y2 <= y1)
+            {
+                throw new InvalidOperationException(
+                    $"Пустая область элемента: {bounds}");
+            }
+
+            var centerX = x1 + (x2 - x1) / 2;
+            var centerY = y1 + (y2 - y1) / 2;
+
+            Console.WriteLine(
+                $"Найдена кнопка {targetResourceId}, " +
+                $"bounds={bounds}, нажимаем ({centerX}, {centerY}).");
+
+            var tap = RunAdb(
+                "-s", _options.DeviceId,
+                "shell", "input", "tap",
+                centerX.ToString(),
+                centerY.ToString());
+
+            if (tap.ExitCode != 0)
+            {
+                throw new InvalidOperationException(
+                    $"Ошибка нажатия: {tap.StdErr}");
+            }
+        }
+        finally
+        {
+            // Удаляем временный XML с устройства.
+            RunAdb(
+                "-s", _options.DeviceId,
+                "shell", "rm", "-f", remotePath);
+        }
     }
+
 
     public void instagramSelectReel()
     {
