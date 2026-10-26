@@ -129,7 +129,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         }
 
         nextButton.Click();
-        Thread.Sleep(2000);
+        Thread.Sleep(1000);
 
         return _driver.PageSource;
     }
@@ -148,7 +148,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         }
 
         doneButton.Click();
-        Thread.Sleep(2000);
+        Thread.Sleep(1000);
 
         return _driver.PageSource;
     }
@@ -167,7 +167,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         }
 
         nextButton.Click();
-        Thread.Sleep(2000);
+        Thread.Sleep(1000);
 
         return _driver.PageSource;
     }
