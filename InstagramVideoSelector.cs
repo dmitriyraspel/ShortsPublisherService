@@ -11,6 +11,57 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
 {
     public sealed record OpenAttempt(string Sha256, string AndroidPath, string? MediaStoreUri, string DiagnosticXmlPath);
 
+    /// <summary>Prepare the exact input video on Android and stop at the Instagram Reel gallery.</summary>
+    public async Task<OpenAttempt> PrepareGalleryAsync(string localPath, CancellationToken cancellationToken)
+    {
+        localPath = Path.GetFullPath(localPath);
+        if (!File.Exists(localPath)) throw new FileNotFoundException("Video not found.", localPath);
+        if (!new[] { ".mp4", ".mov", ".m4v" }.Contains(Path.GetExtension(localPath), StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Unsupported video format.");
+        if (new FileInfo(localPath).Length == 0) throw new InvalidOperationException("Video is empty.");
+
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(TimeSpan.FromMinutes(3));
+        var ct = timeout.Token;
+        var adb = new AdbClient(options.AdbPath);
+        var devices = await adb.DevicesAsync(ct);
+        if (!devices.Split('\\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\\tdevice", StringComparison.Ordinal)))
+            throw new InvalidOperationException($"Android device '{options.DeviceId}' is not ready.");
+
+        string hash;
+        await using (var stream = File.OpenRead(localPath))
+            hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, ct)).ToLowerInvariant();
+
+        // Preserve the supplied basename for gallery inspection; add hash to avoid stale duplicates.
+        var name = $"sp_{hash[..16]}_{Path.GetFileName(localPath)}";
+        var remotePath = $"{options.AndroidMediaDirectory.TrimEnd('/')}/{name}";
+        await adb.ShellAsync(options.DeviceId, ct, "mkdir", "-p", options.AndroidMediaDirectory);
+        await adb.PushAsync(options.DeviceId, localPath, remotePath, ct);
+        var remoteHashOutput = await adb.ShellAsync(options.DeviceId, ct, "sha256sum", remotePath);
+        var remoteHash = remoteHashOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (!string.Equals(hash, remoteHash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"Android SHA-256 mismatch: expected {hash}, got {remoteHash ?? "<empty>"}.");
+
+        // MediaStore query is intentionally NOT a prerequisite: some Android builds
+        // return no rows even after a scan. Ask MediaScanner to index the exact path.
+        await adb.ShellAsync(options.DeviceId, ct, "am", "broadcast",
+            "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
+        await Task.Delay(1800, ct);
+
+        using var instagram = new InstagramPublisher(options);
+        instagram.OpenInstagram();
+        instagram.instagramHome();
+        await Task.Delay(700, ct);
+        instagram.instagramCreate();
+        await Task.Delay(700, ct);
+        instagram.instagramSelectReel();
+        await Task.Delay(1000, ct);
+
+        var xml = new AndroidDiagnostics(options).SaveCurrentScreenXml();
+        // Never claim that the media thumbnail matches the file based on gallery order.
+        return new OpenAttempt(hash, remotePath, null, xml);
+    }
+
     public async Task<OpenAttempt> OpenVideoAsync(string localPath, CancellationToken cancellationToken)
     {
         localPath = Path.GetFullPath(localPath);
