@@ -29,7 +29,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
     {
         // Кнопка Home в нижней панели Instagram.
         // Центр элемента: x = 108, y = 2274.
-        RunAdb("shell", "input", "tap", "108", "2274");
+        RunAdb("-s", _options.DeviceId, "shell", "input", "tap", "108", "2274");
     }
 
     // перед create обязательно нажать Home иначе интерфейс другой
@@ -43,14 +43,12 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         try
         {
             // Получаем актуальную иерархию экрана.
-            var dump = RunAdb(
-                "-s", _options.DeviceId,
-                "shell", "uiautomator", "dump", remotePath);
+            var dump = DumpWithRetry(remotePath);
 
             if (dump.ExitCode != 0)
             {
                 throw new InvalidOperationException(
-                    $"Не удалось получить XML экрана: {dump.StdErr}");
+                    $"Не удалось получить XML экрана: exit={dump.ExitCode}; stdout={dump.StdOut}; stderr={dump.StdErr}");
             }
 
             var read = RunAdb(
@@ -156,9 +154,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         // Локальный XML-файл не создаётся.
         const string remoteXmlPath = "/sdcard/shorts_publisher_screen.xml";
 
-        var dump = RunAdb(
-            "-s", _options.DeviceId,
-            "shell", "uiautomator", "dump", remoteXmlPath);
+        var dump = DumpWithRetry(remoteXmlPath);
 
         if (dump.ExitCode != 0)
         {
@@ -247,6 +243,18 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
     }
 
 
+
+    private (int ExitCode, string StdOut, string StdErr) DumpWithRetry(string remotePath)
+    {
+        (int ExitCode, string StdOut, string StdErr) result = default;
+        for (var attempt = 1; attempt <= 3; attempt++)
+        {
+            result = RunAdb("-s", _options.DeviceId, "shell", "uiautomator", "dump", remotePath);
+            if (result.ExitCode == 0) return result;
+            if (attempt < 3) Thread.Sleep(1000 * attempt);
+        }
+        return result;
+    }
 
     private (int ExitCode, string StdOut, string StdErr) RunAdb(params string[] arguments)
     {
