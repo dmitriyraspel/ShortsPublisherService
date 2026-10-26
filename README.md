@@ -154,3 +154,7 @@ adb devices
 Убедитесь, что эмулятор запущен и отображается со статусом `device`.
 
 
+
+## Experimental Instagram file handoff
+
+Run `dotnet run -- --file ".\\videos\\clip.mp4" --instagram-open-video` to verify the local and Android SHA-256 values, locate a uniquely named MediaStore entry, and attempt an Android ACTION_SEND to Instagram. The command saves UI XML in `diagnostics/` and **never publishes**. A successful exit means the handoff was attempted, **not** that Instagram selected the correct video. Inspect the emulator and XML. The Android device must support `sha256sum` and MediaStore queries.

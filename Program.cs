@@ -17,6 +17,7 @@ bool openInstagram = false;
 bool instagramHome = false;
 bool instagramCreate = false;
 bool instagramSelectReel = false;
+bool instagramOpenVideo = false;
 
 
 
@@ -49,6 +50,9 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "--instagram-select-reel":
             instagramSelectReel = true;
+            break;
+        case "--instagram-open-video":
+            instagramOpenVideo = true;
             break;
         case "--diagnose-ui":
             diagnoseUi = true;
@@ -95,6 +99,17 @@ try
 
     var options = configuration.GetSection("Publisher")
         .Get<PublisherOptions>() ?? new PublisherOptions();
+
+    if (instagramOpenVideo)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return await EmitAsync(Failure(taskId, "invalid_arguments", "--instagram-open-video requires --file.", startedAt), resultFile, ExitBadArguments);
+        var selector = new InstagramVideoSelector(options);
+        var attempt = await selector.OpenVideoAsync(filePath, CancellationToken.None);
+        return await EmitAsync(new JobResult(taskId, "instagram_intent_attempted", true, false,
+            filePath, $"Verified Android copy SHA-256; attempted Instagram intent. UI XML: {attempt.DiagnosticXmlPath}. Instagram selection is NOT verified.",
+            attempt.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
 
     if (diagnoseUi)
     {
@@ -337,6 +352,7 @@ static void PrintUsage()
       ShortsPublisher.exe --file "C:\Videos\clip.mp4" --caption "Caption"
       ShortsPublisher.exe --diagnose-ui
       ShortsPublisher.exe --open-instagram
+      ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --instagram-open-video
 
     Arguments:
       --file PATH          Input video (.mp4, .mov, .m4v).
@@ -345,6 +361,7 @@ static void PrintUsage()
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
       --open-instagram     Open Instagram without publishing.
+      --instagram-open-video  Verify and share a specific video to Instagram (no publication).
       --diagnose-ui        Save current Android screen XML to diagnostics.
       --help, -h           Show this help.
 
