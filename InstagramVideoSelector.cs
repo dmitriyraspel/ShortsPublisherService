@@ -25,7 +25,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         var ct = timeout.Token;
         var adb = new AdbClient(options.AdbPath);
         var devices = await adb.DevicesAsync(ct);
-        if (!devices.Split('\\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\\tdevice", StringComparison.Ordinal)))
+        if (!devices.Split('\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\tdevice", StringComparison.Ordinal)))
             throw new InvalidOperationException($"Android device '{options.DeviceId}' is not ready.");
 
         string hash;
