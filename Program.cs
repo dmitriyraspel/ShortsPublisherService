@@ -18,6 +18,7 @@ bool instagramHome = false;
 bool instagramCreate = false;
 bool instagramSelectReel = false;
 bool instagramOpenVideo = false;
+bool publishVideoInstagram = false;
 
 
 
@@ -50,6 +51,9 @@ for (var i = 0; i < args.Length; i++)
             break;
         case "--instagram-select-reel":
             instagramSelectReel = true;
+            break;
+        case "--publish-video-instagram":
+            publishVideoInstagram = true;
             break;
         case "--instagram-open-video":
             instagramOpenVideo = true;
@@ -99,6 +103,16 @@ try
 
     var options = configuration.GetSection("Publisher")
         .Get<PublisherOptions>() ?? new PublisherOptions();
+
+    if (publishVideoInstagram)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-instagram requires --file.", startedAt), resultFile, ExitBadArguments);
+        var preparation = await new InstagramVideoSelector(options).PrepareGalleryAsync(filePath, CancellationToken.None);
+        return await EmitAsync(new JobResult(taskId, "instagram_gallery_ready", true, false,
+            filePath, $"Android SHA-256 verified. Instagram Reel gallery opened; video NOT selected or published. XML: {preparation.DiagnosticXmlPath}",
+            preparation.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
 
     if (instagramOpenVideo)
     {
@@ -362,6 +376,7 @@ static void PrintUsage()
       --publish-video-youtube  Backwards-compatible switch.
       --open-instagram     Open Instagram without publishing.
       --instagram-open-video  Verify and share a specific video to Instagram (no publication).
+      --publish-video-instagram  Prepare video and open Reel gallery; DOES NOT publish.
       --diagnose-ui        Save current Android screen XML to diagnostics.
       --help, -h           Show this help.
 
