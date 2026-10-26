@@ -98,8 +98,7 @@ try
 
     if (diagnoseUi)
     {
-        using var diagnosticAutomation = new ShortsUploadAutomation(options);
-        var savedFile = diagnosticAutomation.SaveCurrentScreenXml();
+        var savedFile = new AndroidDiagnostics(options).SaveCurrentScreenXml();
 
         return await EmitAsync(
             new JobResult(
@@ -118,7 +117,7 @@ try
 
 if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
 {
-    using var instagramAutomation = new ShortsUploadAutomation(options);
+    using var instagramAutomation = new InstagramPublisher(options);
 
     string status;
     string message;
@@ -246,7 +245,7 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
         "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
         "-d", $"file://{remotePath}");
 
-    using var automationForUpload = new ShortsUploadAutomation(options);
+    using var automationForUpload = new YouTubePublisher(options);
 
     var observation = automationForUpload.PublishVideoOnYouTubeAsync(
         Path.GetFileName(filePath),
