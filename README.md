@@ -1,100 +1,69 @@
 # ShortsPublisherService
 
-## Current behavior
+Сервис публикует одно видео в YouTube Shorts за запуск через Android UI automation (Appium) и ADB. 
 
-- Validates the input path, extension and non-empty file.
-- Reads optional sidecar metadata (`clip.json` for `clip.mp4`).
-- Checks that the configured Android device is connected through ADB.
-- Copies the video into the emulator using ADB.
-- Emits one JSON result to standard output and returns a process exit code.
-- Optionally writes the same result to `--result-file`.
+** Выполнение может создать реальную публикацию.
 
-**Important:** `DryRun=true` means validation and transfer only. The result status is `dry_run_completed`, `success=true`, `published=false`. This is not a YouTube publication confirmation. Live upload currently fails closed because the installed YouTube UI selectors have not yet been verified and implemented. The service must not claim `published` until it verifies the final YouTube upload state.
+## Требования
 
-## Requirements
-
-- .NET 8 SDK
-- Android Studio emulator or a connected Android device
+- .NET 8 SDK (или включённый в проект локальный `tools/dotnet/dotnet.exe`)
 - Android SDK Platform Tools (`adb.exe`)
-- For future live UI automation: Node.js, Appium and UiAutomator2 driver
+- Запущенный Android-эмулятор/устройство с YouTube
+- Appium и UiAutomator2 driver
 
-No database or Docker is required.
+## Запуск
 
-## Configure
-
-Edit `appsettings.json`:
-
-- `Publisher:AdbPath`: path to `adb.exe`. The default uses `%LOCALAPPDATA%`.
-- `Publisher:DeviceId`: normally `emulator-5554`.
-- `Publisher:DryRun`: keep `true` until live UI automation is implemented and tested.
-
-Environment variables may override settings using the `SHORTSPUBLISHER_` prefix. Example:
-`SHORTSPUBLISHER_Publisher__DeviceId=emulator-5554`
-
-## Build
-
-From the project directory:
+Проверенный вариант в PowerShell:
 
 ```powershell
-dotnet restore
-dotnet build -c Release
+& "C:\ShortsPublisher\tools\dotnet\dotnet.exe" run -- `
+  --file ".\videos\video_2026-10-22_13-40-02.mp4" `
+  --caption "Dany jumps and howls" `
+  --publish-video-youtube
 ```
 
-## Run one task
+`--publish-video-youtube` оставлен для совместимости со старым запуском, но теперь публикация — основной режим и флаг необязателен.
+
+Общий вариант:
 
 ```powershell
-dotnet run -- --task-id task-123 --file "C:\ShortsPublisher\incoming\clip.mp4" --result-file "C:\ShortsPublisher\results\task-123.json"
+dotnet run -- --file "C:\Videos\clip.mp4" --caption "Caption" --task-id task-123 --result-file "C:\Results\task-123.json"
 ```
 
-After building, an external service can call the executable directly:
+Параметры:
+- `--file` — обязателен; поддерживаются `.mp4`, `.mov`, `.m4v`.
+- `--caption` — необязателен. Если не задан, используется `Caption`, затем `Title` из соседнего `clip.json`, затем имя файла без расширения.
+- `--task-id` — необязательный ID задачи.
+- `--result-file` — необязательный путь к JSON-результату.
 
-```powershell
-.\bin\Release\net8.0\ShortsPublisher.exe --task-id task-123 --file "C:\ShortsPublisher\incoming\clip.mp4" --result-file "C:\ShortsPublisher\results\task-123.json"
-```
-
-The exact executable name/path can vary by build configuration.
-
-## Result contract
-
-Successful dry run:
+Пример `clip.json`:
 
 ```json
 {
-  "taskId": "task-123",
-  "status": "dry_run_completed",
-  "success": true,
-  "published": false,
-  "file": "C:\\ShortsPublisher\\incoming\\clip.mp4",
-  "message": "Validation and ADB transfer succeeded. Dry run only: YouTube publication was not attempted.",
-  "sha256": "…",
-  "startedAtUtc": "2026-10-20T12:00:00+00:00",
-  "completedAtUtc": "2026-10-20T12:00:02+00:00"
+  "Caption": "Caption for the Short"
 }
 ```
 
-Failure returns `success=false`, `status=failed`, a message, and exit code `1`. Invalid arguments return exit code `2`. The external service should use the exit code for process-level success/failure and parse `status` for business meaning. It should retry only according to its own policy. In particular, a timeout after the upload button was tapped can be ambiguous and should not be blindly retried because it could create a duplicate.
+UI-поток использует проверенные настройки Public visibility и Not made for kids. Sidecar-поля не меняют эти UI-настройки.
 
-## Metadata sidecar
+## Результат и коды выхода
 
-For `clip.mp4`, an optional `clip.json` can contain:
+Сервис печатает один JSON-объект в stdout и при наличии `--result-file` сохраняет его в файл. Технические сообщения выводятся в stderr.
 
-```json
-{
-  "title": "Test Short",
-  "description": "Test description",
-  "visibility": "private",
-  "madeForKids": false
-}
+- `0` — публикация подтверждена явными сигналами YouTube.
+- `1` — ошибка, ошибка загрузки или публикация не подтверждена.
+- `2` — неверные аргументы.
+
+Возможные статусы: `published`, `upload_failed`, `publication_unconfirmed`, `publication_unknown`, `failed`, `invalid_arguments`. Не повторяйте автоматически задачу с неоднозначным результатом: сначала проверьте YouTube, чтобы не создать дубликат.
+
+### Чтобы сохранить XML текущего экрана эмулятора:
+
+```powershell
+& $DOTNET run -- --diagnose-ui
 ```
+=====================
 
-## Explicit limitation
-
-This is not yet a verified end-to-end YouTube uploader. In live mode, the automation throws `LIVE_UPLOAD_NOT_IMPLEMENTED` rather than inventing success. Implement and verify selectors for the actual YouTube app version and confirm the final upload state before changing the result to `published`.
-
-
-## Запуск проекта без глобальной установки
-
-Инструкция для Windows и PowerShell. Все команды выполняются из папки проекта.
+## Установка и Сборка
 
 ### 1. Откройте папку проекта
 
@@ -109,19 +78,6 @@ npx appium driver install uiautomator2
 
 # Проверить установленный драйвер
 npx appium driver list --installed
-
-
-### 2. Настройте локальный .NET SDK
-
-# Собрать .NET-проект локальным SDK
-```powershell
-& "$PWD\tools\dotnet\dotnet.exe" restore
-```
-
-```powershell
-& "$PWD\tools\dotnet\dotnet.exe" build
-```
-Если файл существует и команда выводит версию SDK, можно продолжать, если нет:
 
 # Если .NET не установлен глобально
 ```powershell
@@ -145,7 +101,7 @@ Invoke-WebRequest `
 & "$PWD\tools\dotnet\dotnet.exe" --version
 ```
 
-### 3. Настройте Android SDK
+# Задать переменные окружения
 
 Если Android SDK установлен в стандартной папке пользователя:
 
@@ -153,6 +109,40 @@ Invoke-WebRequest `
 $env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
 $env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
 $env:PATH = "$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\emulator;$env:PATH"
+$DOTNET = "$PWD\tools\dotnet\dotnet.exe"
+```
+
+# Сборка и запуск
+
+# Запустите сервер Appium в отдельном окне PowerShell 
+
+Проверка
+
+```powershell
+npx appium --version
+npx --no-install appium driver list --installed
+```
+
+```powershell
+$env:ANDROID_HOME = "$env:LOCALAPPDATA\Android\Sdk"
+$env:ANDROID_SDK_ROOT = $env:ANDROID_HOME
+$env:PATH = "$env:ANDROID_HOME\platform-tools;$env:ANDROID_HOME\emulator;$env:PATH"
+$DOTNET = "$PWD\tools\dotnet\dotnet.exe"
+```
+
+Запустите локальный Appium
+
+```powershell
+npx appium --address 127.0.0.1 --port 4723
+```
+
+# Соберите проект
+
+В основном окне PowerShell:
+
+```powershell
+& $DOTNET restore
+& $DOTNET build
 ```
 
 Проверьте подключение эмулятора:
@@ -163,57 +153,4 @@ adb devices
 
 Убедитесь, что эмулятор запущен и отображается со статусом `device`.
 
-### 4. Запустите локальный Appium
-
-Проверка
-
-```powershell
-npx appium --version
-npx --no-install appium driver list --installed
-```
-
-Запустите сервер в отдельном окне PowerShell:
-
-```powershell
-npx appium --address 127.0.0.1 --port 4723
-```
-
-> Для полностью воспроизводимого запуска сохраните `package.json` и `package-lock.json` в репозитории. Установка драйвера UiAutomator2 выполняется отдельно от установки самого Appium.
-
-### 5. Соберите проект
-
-В основном окне PowerShell:
-
-```powershell
-& $DOTNET restore
-& $DOTNET build
-```
-
-### 6. Проверьте интерфейс YouTube
-
-Чтобы сохранить XML текущего экрана эмулятора:
-
-```powershell
-& $DOTNET run -- --diagnose-ui
-```
-
-Результат сохраняется в файле `appium-screen.xml` в корне проекта.
-
-### 7. Запустите нужный тест
-
-Используйте только флаги, реализованные в `Program.cs`. Например:
-
-```powershell
-& $DOTNET run -- --test-back-from-visibility
-```
-
-Перед запуском других флагов проверьте их обработчики в `Program.cs`.
-
-**Внимание:** тест, нажимающий `Upload Short`, выполняет реальную попытку публикации видео. Запускайте его только после проверки ролика и настроек.
-
-### Примечания
-
-- Команды Appium запускайте в отдельном окне, оставляя сервер работающим.
-- Не устанавливайте Appium глобально.
-- Не добавляйте в Git личные данные, токены, видео и диагностические XML с конфиденциальной информацией.
 
