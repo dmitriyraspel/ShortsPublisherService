@@ -90,6 +90,23 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         return SaveGalleryXml();
     }
 
+    public string FillReelCaption(string caption)
+    {
+        if (string.IsNullOrWhiteSpace(caption))
+            throw new ArgumentException("Instagram caption must not be empty.", nameof(caption));
+        if (caption.Length > 2200)
+            throw new ArgumentException("Instagram caption exceeds 2200 characters.", nameof(caption));
+
+        var input = WaitForElement("com.instagram.android:id/caption_input_text_view");
+        input.Click();
+        input.Clear();
+        input.SendKeys(caption);
+        var actual = input.GetAttribute("text");
+        if (!string.Equals(actual, caption, StringComparison.Ordinal))
+            throw new InvalidOperationException("Instagram caption verification failed; not proceeding.");
+        return SaveGalleryXml();
+    }
+
     private OpenQA.Selenium.Appium.AppiumElement WaitForElement(string resourceId, string? expectedText = null)
     {
         Connect();
