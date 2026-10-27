@@ -90,7 +90,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         return SaveGalleryXml();
     }
 
-    public (bool Confirmed, string DiagnosticXmlPath) ShareAndMonitorPublication(string expectedCaption)
+    public (bool Confirmed, string DiagnosticXmlPath, string? PostUrl) ShareAndMonitorPublication(string expectedCaption)
     {
         if (string.IsNullOrWhiteSpace(expectedCaption))
             throw new ArgumentException("A non-empty caption is required for publication verification.", nameof(expectedCaption));
@@ -143,9 +143,50 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
             else
                 consecutiveMatches = 0;
 
-            if (consecutiveMatches >= 3) return (true, lastPath);
+            if (consecutiveMatches >= 3) return (true, lastPath, TryCopyPublishedReelUrl(directory));
         }
-        return (false, lastPath);
+        return (false, lastPath, null);
+    }
+
+    private string? TryCopyPublishedReelUrl(string directory)
+    {
+        try
+        {
+            // This is the share action on an already-published Reel, not the upload Share button.
+            ClickWhenReady("com.instagram.android:id/direct_share_button", "Share");
+            Thread.Sleep(1200);
+            var sheet = XDocument.Parse(_driver!.PageSource);
+            var copy = sheet.Descendants().FirstOrDefault(n =>
+                string.Equals((string?)n.Attribute("text"), "Copy link", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals((string?)n.Attribute("content-desc"), "Copy link", StringComparison.OrdinalIgnoreCase));
+            if (copy is null) return null;
+
+            // Match the visible UI element by text or accessibility description.
+            var element = _driver.FindElements(OpenQA.Selenium.By.XPath(
+                "//*[@text='Copy link' or @content-desc='Copy link']"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled);
+            if (element is null) return null;
+            element.Click();
+            Thread.Sleep(500);
+
+            // Reflection keeps this compatible with different Appium .NET client versions.
+            var method = _driver.GetType().GetMethod("GetClipboardText", Type.EmptyTypes);
+            var clipboard = method?.Invoke(_driver, null) as string;
+            if (string.IsNullOrWhiteSpace(clipboard)) return null;
+            var match = System.Text.RegularExpressions.Regex.Match(clipboard,
+                @"https://(?:www\\.)?instagram\\.com/(?:reel|reels|p)/[A-Za-z0-9_-]+/?(?:\\?[^\\s]*)?",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success) return null;
+            var url = match.Value;
+            var output = Path.GetFullPath(Path.Combine(directory, "instagram_published_reel_url.txt"));
+            File.WriteAllText(output, url + Environment.NewLine);
+            return url;
+        }
+        catch (Exception)
+        {
+            // A missing share-sheet action or clipboard permission must not negate a verified post.
+            return null;
+        }
     }
 
     private static string NormalizeCaption(string value) =>
