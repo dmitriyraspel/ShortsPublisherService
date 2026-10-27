@@ -12,7 +12,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
     public sealed record OpenAttempt(string Sha256, string AndroidPath, string? MediaStoreUri, string DiagnosticXmlPath);
 
     /// <summary>Prepare the exact input video on Android and stop at the Instagram Reel gallery.</summary>
-    public async Task<OpenAttempt> PrepareGalleryAsync(string localPath, CancellationToken cancellationToken)
+    public async Task<OpenAttempt> PrepareGalleryAsync(string localPath, string caption, CancellationToken cancellationToken)
     {
         localPath = Path.GetFullPath(localPath);
         if (!File.Exists(localPath)) throw new FileNotFoundException("Video not found.", localPath);
@@ -54,7 +54,8 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         instagram.WaitForGallery();
 
         // Temporary selection policy: first visible video tile, excluding camera.
-        var xml = instagram.SelectFirstGalleryVideo();
+        instagram.SelectFirstGalleryVideo();
+        var xml = instagram.FillReelCaption(caption);
         return new OpenAttempt(hash, remotePath, null, xml);
     }
 
