@@ -46,6 +46,11 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
             "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
         await Task.Delay(1800, ct);
 
+        var diagnosticsDirectory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+        var previousGalleryDiagnostics = Directory.Exists(diagnosticsDirectory)
+            ? Directory.GetFiles(diagnosticsDirectory, "instagram_gallery_*.xml").ToHashSet(StringComparer.OrdinalIgnoreCase)
+            : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
         using var instagram = new InstagramPublisher(options);
         instagram.OpenInstagram();
         instagram.instagramHome();
@@ -59,6 +64,31 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         var publication = instagram.ShareAndMonitorPublication(caption);
         if (!publication.Confirmed)
             throw new InvalidOperationException($"Instagram Share was clicked, but publication was not confirmed within 150 seconds. Last XML: {publication.DiagnosticXmlPath}");
+        // Publication is already confirmed. Cleanup is best-effort and must never
+        // turn a successful post into a failed job (which could invite a retry).
+        try { instagram.CloseInstagramAfterPublication(); }
+        catch (Exception ex) { Console.Error.WriteLine($"Instagram post-publish close failed: {ex.Message}"); }
+
+        try
+        {
+            // Delete only the exact content-addressed file pushed by this run.
+            // Guard against accidentally deleting an arbitrary device path.
+            if (!name.StartsWith("sp_" + hash[..16] + "_", StringComparison.Ordinal) ||
+                !remotePath.StartsWith(options.AndroidMediaDirectory.TrimEnd('/') + "/", StringComparison.Ordinal))
+                throw new InvalidOperationException("Unsafe Android media cleanup path.");
+            await adb.ShellAsync(options.DeviceId, CancellationToken.None, "rm", "--", remotePath);
+            await adb.ShellAsync(options.DeviceId, CancellationToken.None, "am", "broadcast",
+                "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"Android media cleanup failed for {remotePath}: {ex.Message}"); }
+
+        try
+        {
+            foreach (var file in Directory.GetFiles(diagnosticsDirectory, "instagram_gallery_*.xml"))
+                if (!previousGalleryDiagnostics.Contains(file)) File.Delete(file);
+        }
+        catch (Exception ex) { Console.Error.WriteLine($"Instagram gallery diagnostics cleanup failed: {ex.Message}"); }
+
         return new OpenAttempt(hash, remotePath, null, publication.DiagnosticXmlPath, publication.PostUrl);
     }
 
