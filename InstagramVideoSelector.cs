@@ -9,7 +9,7 @@ namespace ShortsPublisher;
 /// </summary>
 public sealed class InstagramVideoSelector(PublisherOptions options)
 {
-    public sealed record OpenAttempt(string Sha256, string AndroidPath, string? MediaStoreUri, string DiagnosticXmlPath);
+    public sealed record OpenAttempt(string Sha256, string AndroidPath, string? MediaStoreUri, string DiagnosticXmlPath, string? PostUrl = null);
 
     /// <summary>Prepare the exact input video on Android and stop at the Instagram Reel gallery.</summary>
     public async Task<OpenAttempt> PrepareGalleryAsync(string localPath, string caption, CancellationToken cancellationToken)
@@ -59,7 +59,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         var publication = instagram.ShareAndMonitorPublication(caption);
         if (!publication.Confirmed)
             throw new InvalidOperationException($"Instagram Share was clicked, but publication was not confirmed within 150 seconds. Last XML: {publication.DiagnosticXmlPath}");
-        return new OpenAttempt(hash, remotePath, null, publication.DiagnosticXmlPath);
+        return new OpenAttempt(hash, remotePath, null, publication.DiagnosticXmlPath, publication.PostUrl);
     }
 
     public async Task<OpenAttempt> OpenVideoAsync(string localPath, CancellationToken cancellationToken)
