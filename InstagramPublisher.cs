@@ -92,58 +92,42 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
 
     public (bool Confirmed, string DiagnosticXmlPath, string? PostUrl) ShareAndMonitorPublication(string expectedCaption)
     {
-        if (string.IsNullOrWhiteSpace(expectedCaption))
-            throw new ArgumentException("A non-empty caption is required for publication verification.", nameof(expectedCaption));
-
-        // Share is an explicit publication action. Never retry it on verification timeout.
+        // The Instagram UI is the source of truth: "Done posting" confirms publication.
+        // Never click Share a second time, even if verification times out.
         ClickWhenReady("com.instagram.android:id/share_button", "Share");
         var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
         Directory.CreateDirectory(directory);
-        var expected = NormalizeCaption(expectedCaption);
+        var deadline = Stopwatch.StartNew();
         string lastPath = "";
-        var consecutiveMatches = 0;
-
-        // 30 samples, five seconds apart: maximum 150 seconds of monitoring.
-        for (var attempt = 1; attempt <= 30; attempt++)
+        var attempt = 0;
+        while (deadline.Elapsed < TimeSpan.FromSeconds(150))
         {
-            Thread.Sleep(5000);
+            attempt++;
             var source = _driver!.PageSource;
             lastPath = Path.GetFullPath(Path.Combine(directory,
                 $"instagram_post_share_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{attempt:D2}.xml"));
             File.WriteAllText(lastPath, source, new System.Text.UTF8Encoding(false));
-
-            var document = XDocument.Parse(source);
-            var nodes = document.Descendants().ToArray();
-            var uploading = nodes.Any(node =>
-                (((string?)node.Attribute("text") ?? "") + " " +
-                 ((string?)node.Attribute("content-desc") ?? ""))
-                .Contains("Sharing to Reels", StringComparison.OrdinalIgnoreCase));
-
-            // Identify the Reel viewer by resource-id, not by account name.
-            var reelViewer = nodes.Any(node =>
-                string.Equals((string?)node.Attribute("resource-id"),
-                    "com.instagram.android:id/clips_media_component", StringComparison.Ordinal));
-
-            // Instagram truncates long captions in the Reel viewer with an ellipsis.
-            // Require a meaningful caption prefix rather than matching generic hashtags.
-            var captionMatches = nodes.Any(node =>
+            try
             {
-                var description = (string?)node.Attribute("content-desc") ?? "";
-                if (!description.Contains("…", StringComparison.Ordinal) &&
-                    !description.Contains("...", StringComparison.Ordinal))
-                    return NormalizeCaption(description).Contains(expected, StringComparison.Ordinal);
-
-                var visible = NormalizeCaption(description.Replace("…", "").Replace("...", ""));
-                return visible.Length >= Math.Min(12, expected.Length) &&
-                       expected.StartsWith(visible, StringComparison.Ordinal);
-            });
-
-            if (!uploading && reelViewer && captionMatches)
-                consecutiveMatches++;
-            else
-                consecutiveMatches = 0;
-
-            if (consecutiveMatches >= 3) return (true, lastPath, TryCopyPublishedReelUrl(directory));
+                var nodes = XDocument.Parse(source).Descendants().ToArray();
+                var posted = nodes.Any(node =>
+                    string.Equals((string?)node.Attribute("resource-id"),
+                        "com.instagram.android:id/status_text", StringComparison.Ordinal) &&
+                    ((string?)node.Attribute("text") ?? "").Contains("Done posting", StringComparison.OrdinalIgnoreCase));
+                if (posted)
+                {
+                    // The snackbar may disappear quickly. Preserve proof and avoid
+                    // interacting with a different Reel shown in the background feed.
+                    return (true, lastPath, null);
+                }
+            }
+            catch (System.Xml.XmlException)
+            {
+                // Transient UI hierarchy during animation; keep observing.
+            }
+            var remaining = TimeSpan.FromSeconds(150) - deadline.Elapsed;
+            if (remaining > TimeSpan.Zero)
+                Thread.Sleep(remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2));
         }
         return (false, lastPath, null);
     }
