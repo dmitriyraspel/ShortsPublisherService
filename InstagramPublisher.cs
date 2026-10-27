@@ -52,54 +52,35 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         return path;
     }
 
-    // Select only when gallery metadata identifies a single recent candidate.
-    // Never use grid position alone.
-    public string SelectVideoByGalleryMetadata(TimeSpan duration, DateTime transferStartedLocal)
+    // Temporary strategy: choose the first VIDEO thumbnail in the current gallery.
+    // The camera tile is excluded. This does not prove file identity.
+    public string SelectFirstGalleryVideo()
     {
         Connect();
         var source = _driver!.PageSource;
-        var document = System.Xml.Linq.XDocument.Parse(source);
+        var document = XDocument.Parse(source);
         var grid = document.Descendants().FirstOrDefault(n =>
             (string?)n.Attribute("resource-id") == "com.instagram.android:id/gallery_recycler_view")
             ?? throw new InvalidOperationException("Instagram gallery grid is missing.");
 
-        var candidates = grid.Elements().Where(item =>
-        {
-            var thumbnail = item.DescendantsAndSelf().FirstOrDefault(n =>
-                (string?)n.Attribute("resource-id") == "com.instagram.android:id/gallery_grid_item_thumbnail");
-            var label = item.DescendantsAndSelf().FirstOrDefault(n =>
-                (string?)n.Attribute("resource-id") == "com.instagram.android:id/gallery_grid_item_label");
-            if (thumbnail is null || label is null) return false;
-            var parts = ((string?)label.Attribute("text") ?? "").Split(':');
-            if (parts.Length != 2 || !int.TryParse(parts[0], out var minutes) ||
-                !int.TryParse(parts[1], out var seconds)) return false;
-            var shownSeconds = minutes * 60 + seconds;
-            if (Math.Abs(shownSeconds - duration.TotalSeconds) > 1.5) return false;
-            var description = (string?)thumbnail.Attribute("content-desc") ?? "";
-            const string prefix = "Unselected Video thumbnail created on ";
-            if (!description.StartsWith(prefix, StringComparison.Ordinal)) return false;
-            if (!DateTime.TryParseExact(description[prefix.Length..],
-                    "MMMM d, yyyy h:mm tt", System.Globalization.CultureInfo.GetCultureInfo("en-US"),
-                    System.Globalization.DateTimeStyles.None, out var created)) return false;
-            return Math.Abs((created - transferStartedLocal).TotalMinutes) <= 5;
-        }).ToList();
+        var firstVideo = grid.Descendants().FirstOrDefault(n =>
+            (string?)n.Attribute("resource-id") == "com.instagram.android:id/gallery_grid_item_thumbnail" &&
+            ((string?)n.Attribute("content-desc") ?? "").Contains("Video thumbnail", StringComparison.OrdinalIgnoreCase));
+        if (firstVideo is null)
+            throw new InvalidOperationException("No video thumbnail in the visible Instagram gallery. Nothing selected.");
 
-        if (candidates.Count != 1)
-            throw new InvalidOperationException(
-                $"Cannot safely identify video in Instagram gallery: {candidates.Count} candidates match duration and transfer time. Nothing selected.");
-
-        var node = candidates[0].DescendantsAndSelf().First(n =>
-            (string?)n.Attribute("resource-id") == "com.instagram.android:id/gallery_grid_item_thumbnail");
-        var bounds = (string?)node.Attribute("bounds") ?? "";
+        var bounds = (string?)firstVideo.Attribute("bounds") ?? "";
         var match = System.Text.RegularExpressions.Regex.Match(bounds, @"\[(\d+),(\d+)\]\[(\d+),(\d+)\]");
-        if (!match.Success) throw new InvalidOperationException("Invalid gallery thumbnail bounds.");
+        if (!match.Success) throw new InvalidOperationException("Invalid video thumbnail bounds.");
         var x = (int.Parse(match.Groups[1].Value) + int.Parse(match.Groups[3].Value)) / 2;
         var y = (int.Parse(match.Groups[2].Value) + int.Parse(match.Groups[4].Value)) / 2;
         var thumbs = _driver.FindElements(OpenQA.Selenium.By.Id("com.instagram.android:id/gallery_grid_item_thumbnail"));
         var selected = thumbs.FirstOrDefault(t =>
             t.Displayed && t.Location.X <= x && x < t.Location.X + t.Size.Width &&
             t.Location.Y <= y && y < t.Location.Y + t.Size.Height);
-        if (selected is null) throw new InvalidOperationException("Matched thumbnail is no longer visible; nothing selected.");
+        if (selected is null)
+            throw new InvalidOperationException("First video thumbnail is no longer visible. Nothing selected.");
+
         selected.Click();
         WaitForElement("com.instagram.android:id/clips_right_action_button");
         WaitForElement("com.instagram.android:id/capture_interactive_drawable_container");
