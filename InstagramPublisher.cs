@@ -90,38 +90,69 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         return SaveGalleryXml();
     }
 
-    public (bool Confirmed, string DiagnosticXmlPath) ShareAndMonitorPublication()
+    public (bool Confirmed, string DiagnosticXmlPath) ShareAndMonitorPublication(string expectedCaption)
     {
-        // Explicit publication action. Do not confuse Share with Next.
+        if (string.IsNullOrWhiteSpace(expectedCaption))
+            throw new ArgumentException("A non-empty caption is required for publication verification.", nameof(expectedCaption));
+
+        // Share is an explicit publication action. Never retry it on verification timeout.
         ClickWhenReady("com.instagram.android:id/share_button", "Share");
         var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
         Directory.CreateDirectory(directory);
+        var expected = NormalizeCaption(expectedCaption);
         string lastPath = "";
-        for (var attempt = 1; attempt <= 12; attempt++)
+        var consecutiveMatches = 0;
+
+        // 30 samples, five seconds apart: maximum 150 seconds of monitoring.
+        for (var attempt = 1; attempt <= 30; attempt++)
         {
             Thread.Sleep(5000);
             var source = _driver!.PageSource;
-            var document = XDocument.Parse(source);
             lastPath = Path.GetFullPath(Path.Combine(directory,
                 $"instagram_post_share_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{attempt:D2}.xml"));
             File.WriteAllText(lastPath, source, new System.Text.UTF8Encoding(false));
 
-            // Only an explicit Instagram success message can confirm publication.
-            // Disappearance of Share, navigation home or a progress indicator cannot.
-            var confirmed = document.Descendants().Any(node =>
+            var document = XDocument.Parse(source);
+            var nodes = document.Descendants().ToArray();
+            var uploading = nodes.Any(node =>
+                (((string?)node.Attribute("text") ?? "") + " " +
+                 ((string?)node.Attribute("content-desc") ?? ""))
+                .Contains("Sharing to Reels", StringComparison.OrdinalIgnoreCase));
+
+            // Identify the Reel viewer by resource-id, not by account name.
+            var reelViewer = nodes.Any(node =>
+                string.Equals((string?)node.Attribute("resource-id"),
+                    "com.instagram.android:id/clips_media_component", StringComparison.Ordinal));
+
+            // Instagram truncates long captions in the Reel viewer with an ellipsis.
+            // Require a meaningful caption prefix rather than matching generic hashtags.
+            var captionMatches = nodes.Any(node =>
             {
-                var value = ((string?)node.Attribute("text") ?? "") + " " +
-                            ((string?)node.Attribute("content-desc") ?? "");
-                return value.Contains("Your reel has been shared", StringComparison.OrdinalIgnoreCase) ||
-                       value.Contains("Reel shared", StringComparison.OrdinalIgnoreCase) ||
-                       value.Contains("Your reel was shared", StringComparison.OrdinalIgnoreCase);
+                var description = (string?)node.Attribute("content-desc") ?? "";
+                if (!description.Contains("…", StringComparison.Ordinal) &&
+                    !description.Contains("...", StringComparison.Ordinal))
+                    return NormalizeCaption(description).Contains(expected, StringComparison.Ordinal);
+
+                var visible = NormalizeCaption(description.Replace("…", "").Replace("...", ""));
+                return visible.Length >= Math.Min(12, expected.Length) &&
+                       expected.StartsWith(visible, StringComparison.Ordinal);
             });
-            if (confirmed) return (true, lastPath);
+
+            if (!uploading && reelViewer && captionMatches)
+                consecutiveMatches++;
+            else
+                consecutiveMatches = 0;
+
+            if (consecutiveMatches >= 3) return (true, lastPath);
         }
         return (false, lastPath);
     }
 
-    public string FillReelCaption(string caption)
+    private static string NormalizeCaption(string value) =>
+        string.Join(" ", value.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries))
+            .Trim().ToLowerInvariant();
+
+        public string FillReelCaption(string caption)
     {
         if (string.IsNullOrWhiteSpace(caption))
             throw new ArgumentException("Instagram caption must not be empty.", nameof(caption));
