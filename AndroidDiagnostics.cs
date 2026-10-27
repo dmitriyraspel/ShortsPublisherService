@@ -32,14 +32,21 @@ public sealed class AndroidDiagnostics(PublisherOptions options)
             Task.WaitAll(stdout, stderr);
             return (process.ExitCode, stdout.Result, stderr.Result);
         }
+        string SaveViaAppium()
+        {
+            using var instagram = new InstagramPublisher(options);
+            return instagram.SaveCurrentScreenXml(outputDirectory);
+        }
         try
         {
             var dump = Run("-s", options.DeviceId, "shell", "uiautomator", "dump", remotePath);
-            if (dump.Code != 0) throw new InvalidOperationException(dump.Err);
+            if (dump.Code != 0 || !dump.Out.Contains("dumped to", StringComparison.OrdinalIgnoreCase))
+                return SaveViaAppium();
             var read = Run("-s", options.DeviceId, "shell", "cat", remotePath);
             if (read.Code != 0 || string.IsNullOrWhiteSpace(read.Out))
-                throw new InvalidOperationException("Unable to read UI XML: " + read.Err);
-            XDocument.Parse(read.Out);
+                return SaveViaAppium();
+            try { XDocument.Parse(read.Out); }
+            catch (System.Xml.XmlException) { return SaveViaAppium(); }
             File.WriteAllText(outputPath, read.Out, new System.Text.UTF8Encoding(false));
             return outputPath;
         }
