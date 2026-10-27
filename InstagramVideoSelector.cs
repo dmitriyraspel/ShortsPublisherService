@@ -55,7 +55,8 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
 
         // Temporary selection policy: first visible video tile, excluding camera.
         instagram.SelectFirstGalleryVideo();
-        var xml = instagram.FillReelCaption(caption);
+        instagram.FillReelCaption(caption);
+        var xml = instagram.ClickNextAfterCaption();
         return new OpenAttempt(hash, remotePath, null, xml);
     }
 
