@@ -171,8 +171,10 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         instagramHome();
         Thread.Sleep(500);
         Connect();
-        Console.Error.WriteLine("[instagram] cleanup.terminate: stopping Instagram");
-        _driver!.TerminateApp("com.instagram.android", TimeSpan.FromSeconds(10));
+        Console.Error.WriteLine("[instagram] cleanup.terminate: stopping Instagram via ADB");
+        var result = RunAdb("-s", _options.DeviceId, "shell", "am", "force-stop", "com.instagram.android");
+        if (result.ExitCode != 0)
+            throw new InvalidOperationException($"ADB force-stop failed (exit {result.ExitCode}): {result.StdErr}");
         Console.Error.WriteLine("[instagram] cleanup.terminate: completed");
     }
 
