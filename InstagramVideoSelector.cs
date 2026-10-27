@@ -44,7 +44,11 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
 
         // MediaStore query is intentionally NOT a prerequisite: some Android builds
         // return no rows even after a scan. Ask MediaScanner to index the exact path.
-        var transferStartedLocal = DateTime.Now;
+        var deviceClock = (await adb.ShellAsync(options.DeviceId, ct, "date", "+%Y-%m-%dT%H:%M:%S")).Trim();
+        if (!DateTime.TryParseExact(deviceClock, "yyyy-MM-ddTHH:mm:ss",
+                System.Globalization.CultureInfo.InvariantCulture,
+                System.Globalization.DateTimeStyles.None, out var transferStartedLocal))
+            throw new InvalidOperationException($"Cannot read Android device local time: {deviceClock}");
         await adb.ShellAsync(options.DeviceId, ct, "am", "broadcast",
             "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
         await Task.Delay(1800, ct);
