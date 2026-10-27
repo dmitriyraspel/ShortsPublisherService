@@ -109,8 +109,8 @@ try
         if (string.IsNullOrWhiteSpace(filePath))
             return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-instagram requires --file.", startedAt), resultFile, ExitBadArguments);
         var preparation = await new InstagramVideoSelector(options).PrepareGalleryAsync(filePath, CancellationToken.None);
-        return await EmitAsync(new JobResult(taskId, "instagram_video_selected", true, false,
-            filePath, $"Android SHA-256 verified. Instagram Reel video selected; preview confirmed; NOT published. XML: {preparation.DiagnosticXmlPath}",
+        return await EmitAsync(new JobResult(taskId, "instagram_next_clicked", true, false,
+            filePath, $"Android SHA-256 verified. Instagram Reel video selected; Next clicked; NOT published. Resulting screen XML: {preparation.DiagnosticXmlPath}",
             preparation.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
