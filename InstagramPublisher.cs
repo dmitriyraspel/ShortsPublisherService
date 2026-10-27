@@ -90,16 +90,35 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         return SaveGalleryXml();
     }
 
-    public string ClickNextAfterCaption()
+    public (bool Confirmed, string DiagnosticXmlPath) ShareAndMonitorPublication()
     {
-        // This resource ID is also used for sharing on other screens.
-        // Never click unless Instagram explicitly labels the button Next.
-        var next = WaitForElement("com.instagram.android:id/share_button", "Next");
-        if (!string.Equals(next.GetAttribute("content-desc"), "Next", StringComparison.OrdinalIgnoreCase))
-            throw new InvalidOperationException("Instagram button is not explicitly Next; refusing to click.");
-        next.Click();
-        Thread.Sleep(1200);
-        return SaveGalleryXml();
+        // Explicit publication action. Do not confuse Share with Next.
+        ClickWhenReady("com.instagram.android:id/share_button", "Share");
+        var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+        Directory.CreateDirectory(directory);
+        string lastPath = "";
+        for (var attempt = 1; attempt <= 12; attempt++)
+        {
+            Thread.Sleep(5000);
+            var source = _driver!.PageSource;
+            var document = XDocument.Parse(source);
+            lastPath = Path.GetFullPath(Path.Combine(directory,
+                $"instagram_post_share_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{attempt:D2}.xml"));
+            File.WriteAllText(lastPath, source, new System.Text.UTF8Encoding(false));
+
+            // Only an explicit Instagram success message can confirm publication.
+            // Disappearance of Share, navigation home or a progress indicator cannot.
+            var confirmed = document.Descendants().Any(node =>
+            {
+                var value = ((string?)node.Attribute("text") ?? "") + " " +
+                            ((string?)node.Attribute("content-desc") ?? "");
+                return value.Contains("Your reel has been shared", StringComparison.OrdinalIgnoreCase) ||
+                       value.Contains("Reel shared", StringComparison.OrdinalIgnoreCase) ||
+                       value.Contains("Your reel was shared", StringComparison.OrdinalIgnoreCase);
+            });
+            if (confirmed) return (true, lastPath);
+        }
+        return (false, lastPath);
     }
 
     public string FillReelCaption(string caption)
