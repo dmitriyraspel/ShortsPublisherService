@@ -90,6 +90,18 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         return SaveGalleryXml();
     }
 
+    public string ClickNextAfterCaption()
+    {
+        // This resource ID is also used for sharing on other screens.
+        // Never click unless Instagram explicitly labels the button Next.
+        var next = WaitForElement("com.instagram.android:id/share_button", "Next");
+        if (!string.Equals(next.GetAttribute("content-desc"), "Next", StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Instagram button is not explicitly Next; refusing to click.");
+        next.Click();
+        Thread.Sleep(1200);
+        return SaveGalleryXml();
+    }
+
     public string FillReelCaption(string caption)
     {
         if (string.IsNullOrWhiteSpace(caption))
