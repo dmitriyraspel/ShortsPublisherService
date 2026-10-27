@@ -101,6 +101,8 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
             t.Location.Y <= y && y < t.Location.Y + t.Size.Height);
         if (selected is null) throw new InvalidOperationException("Matched thumbnail is no longer visible; nothing selected.");
         selected.Click();
+        WaitForElement("com.instagram.android:id/clips_right_action_button");
+        WaitForElement("com.instagram.android:id/capture_interactive_drawable_container");
         return SaveGalleryXml();
     }
 
