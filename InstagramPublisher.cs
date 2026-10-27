@@ -116,6 +116,10 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         var actual = input.GetAttribute("text");
         if (!string.Equals(actual, caption, StringComparison.Ordinal))
             throw new InvalidOperationException("Instagram caption verification failed; not proceeding.");
+
+        // Confirm caption editing (including trailing hashtag suggestions) without publishing.
+        ClickWhenReady("com.instagram.android:id/action_bar_button_text", "OK");
+        Thread.Sleep(500);
         return SaveGalleryXml();
     }
 
