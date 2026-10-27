@@ -84,6 +84,9 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         selected.Click();
         WaitForElement("com.instagram.android:id/clips_right_action_button");
         WaitForElement("com.instagram.android:id/capture_interactive_drawable_container");
+        // Move only to the next editing step; never press Share/Publish.
+        ClickWhenReady("com.instagram.android:id/clips_right_action_button", "Next");
+        Thread.Sleep(1200);
         return SaveGalleryXml();
     }
 
