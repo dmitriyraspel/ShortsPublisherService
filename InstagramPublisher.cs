@@ -105,45 +105,72 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
 
     public (bool Confirmed, string DiagnosticXmlPath, string? PostUrl) ShareAndMonitorPublication(string expectedCaption)
     {
-        // The Instagram UI is the source of truth: "Done posting" confirms publication.
-        // Never click Share a second time, even if verification times out.
+        // The only success signal is Instagram's own "Done posting" status.
+        // Never click Share again after the first attempt.
         ClickWhenReady("com.instagram.android:id/share_button", "Share");
         var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
         Directory.CreateDirectory(directory);
         var deadline = Stopwatch.StartNew();
-        string lastPath = "";
+        const int timeoutSeconds = 200;
         var attempt = 0;
-        while (deadline.Elapsed < TimeSpan.FromSeconds(150))
+        while (deadline.Elapsed < TimeSpan.FromSeconds(timeoutSeconds))
         {
             attempt++;
-            var snapshotTimer = Stopwatch.StartNew();
-            var source = _driver!.PageSource;
-            snapshotTimer.Stop();
-            Console.Error.WriteLine($"Instagram publication poll #{attempt}: PageSource took {snapshotTimer.ElapsedMilliseconds} ms; elapsed {deadline.Elapsed.TotalSeconds:F1}s.");
-            lastPath = Path.GetFullPath(Path.Combine(directory,
-                $"instagram_post_share_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{attempt:D2}.xml"));
-            File.WriteAllText(lastPath, source, new System.Text.UTF8Encoding(false));
+            var timer = Stopwatch.StartNew();
             try
             {
-                var nodes = XDocument.Parse(source).Descendants().ToArray();
-                var posted = nodes.Any(node =>
-                    string.Equals((string?)node.Attribute("resource-id"),
-                        "com.instagram.android:id/status_text", StringComparison.Ordinal) &&
-                    ((string?)node.Attribute("text") ?? "").Contains("Done posting", StringComparison.OrdinalIgnoreCase));
-                if (posted)
+                // Query one UI element rather than fetching the full, expensive hierarchy.
+                var statuses = _driver!.FindElements(OpenQA.Selenium.By.Id(
+                    "com.instagram.android:id/status_text"));
+                foreach (var status in statuses)
                 {
-                    // The snackbar may disappear quickly. Preserve proof and avoid
-                    // interacting with a different Reel shown in the background feed.
-                    return (true, lastPath, null);
+                    var value = status.Text;
+                    if (!value.Contains("Done posting", StringComparison.OrdinalIgnoreCase))
+                        continue;
+
+                    // The confirmation is already observed. XML is optional evidence;
+                    // a slow or failed PageSource must never revoke publication success.
+                    var evidencePath = "";
+                    try
+                    {
+                        var source = _driver.PageSource;
+                        evidencePath = Path.GetFullPath(Path.Combine(directory,
+                            $"instagram_post_share_confirmed_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+                        File.WriteAllText(evidencePath, source, new System.Text.UTF8Encoding(false));
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.Error.WriteLine($"Instagram confirmation observed; optional XML capture failed: {ex.Message}");
+                    }
+                    return (true, evidencePath, null);
                 }
             }
-            catch (System.Xml.XmlException)
+            catch (OpenQA.Selenium.WebDriverException ex)
             {
-                // Transient UI hierarchy during animation; keep observing.
+                Console.Error.WriteLine($"Instagram status poll #{attempt} failed: {ex.Message}");
             }
-            var remaining = TimeSpan.FromSeconds(150) - deadline.Elapsed;
+            finally
+            {
+                timer.Stop();
+                Console.Error.WriteLine($"Instagram status poll #{attempt}: {timer.ElapsedMilliseconds} ms; elapsed {deadline.Elapsed.TotalSeconds:F1}s.");
+            }
+            var remaining = TimeSpan.FromSeconds(timeoutSeconds) - deadline.Elapsed;
             if (remaining > TimeSpan.Zero)
-                Thread.Sleep(remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2));
+                Thread.Sleep(remaining < TimeSpan.FromSeconds(1) ? remaining : TimeSpan.FromSeconds(1));
+        }
+
+        // A timeout means unknown outcome, not a failed post. Capture one diagnostic.
+        var lastPath = "";
+        try
+        {
+            var source = _driver!.PageSource;
+            lastPath = Path.GetFullPath(Path.Combine(directory,
+                $"instagram_post_share_unverified_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+            File.WriteAllText(lastPath, source, new System.Text.UTF8Encoding(false));
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"Instagram timeout diagnostic capture failed: {ex.Message}");
         }
         return (false, lastPath, null);
     }
