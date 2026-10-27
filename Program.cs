@@ -111,8 +111,8 @@ try
         if (string.IsNullOrWhiteSpace(caption))
             return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-instagram requires --caption.", startedAt), resultFile, ExitBadArguments);
         var preparation = await new InstagramVideoSelector(options).PrepareGalleryAsync(filePath, caption, CancellationToken.None);
-        return await EmitAsync(new JobResult(taskId, "instagram_caption_entered", true, false,
-            filePath, $"Android SHA-256 verified. Instagram Reel video selected; Next clicked; caption entered and verified; NOT published. Resulting screen XML: {preparation.DiagnosticXmlPath}",
+        return await EmitAsync(new JobResult(taskId, "instagram_caption_next_clicked", true, false,
+            filePath, $"Android SHA-256 verified. Instagram Reel video selected; Next clicked; caption entered and verified; caption-screen Next clicked; NOT published. Resulting screen XML: {preparation.DiagnosticXmlPath}",
             preparation.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
@@ -378,7 +378,7 @@ static void PrintUsage()
       --publish-video-youtube  Backwards-compatible switch.
       --open-instagram     Open Instagram without publishing.
       --instagram-open-video  Verify and share a specific video to Instagram (no publication).
-      --publish-video-instagram  Select Reel, click Next, enter required --caption; DOES NOT publish.
+      --publish-video-instagram  Select Reel, enter --caption, click caption-screen Next; DOES NOT publish.
       --diagnose-ui        Save current Android screen XML to diagnostics.
       --help, -h           Show this help.
 
