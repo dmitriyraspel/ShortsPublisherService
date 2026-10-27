@@ -44,6 +44,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
 
         // MediaStore query is intentionally NOT a prerequisite: some Android builds
         // return no rows even after a scan. Ask MediaScanner to index the exact path.
+        var transferStartedLocal = DateTime.Now;
         await adb.ShellAsync(options.DeviceId, ct, "am", "broadcast",
             "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
         await Task.Delay(1800, ct);
@@ -55,8 +56,27 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         instagram.instagramSelectReel();
         instagram.WaitForGallery();
 
-        var xml = instagram.SaveGalleryXml();
-        // Never claim that the media thumbnail matches the file based on gallery order.
+        // MediaStore duration belongs to the verified content-addressed filename.
+        // If indexing is incomplete, stop rather than tapping an arbitrary thumbnail.
+        string rows = "";
+        for (var attempt = 0; attempt < 8; attempt++)
+        {
+            rows = await adb.ShellAsync(options.DeviceId, ct, "content", "query",
+                "--uri", "content://media/external/video/media",
+                "--projection", "_id:display_name:duration",
+                "--where", $"_display_name='{name}'");
+            if (Regex.IsMatch(rows, @"(?:^|[,\\s])duration=\\d+")) break;
+            await Task.Delay(750, ct);
+        }
+        var durations = Regex.Matches(rows, @"(?:^|[,\\s])duration=(\\d+)")
+            .Select(m => long.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture))
+            .ToArray();
+        var ids = Regex.Matches(rows, @"(?:^|[,\\s])_id=(\\d+)").Count;
+        if (ids != 1 || durations.Length != 1)
+            throw new InvalidOperationException(
+                $"Could not uniquely identify verified video in Android MediaStore; nothing selected. Response: {rows}");
+        var xml = instagram.SelectVideoByGalleryMetadata(
+            TimeSpan.FromMilliseconds(durations[0]), transferStartedLocal);
         return new OpenAttempt(hash, remotePath, null, xml);
     }
 
