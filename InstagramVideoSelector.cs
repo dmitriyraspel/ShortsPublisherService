@@ -14,6 +14,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
     /// <summary>Prepare the exact input video on Android and stop at the Instagram Reel gallery.</summary>
     public async Task<OpenAttempt> PrepareGalleryAsync(string localPath, string caption, CancellationToken cancellationToken)
     {
+        Console.Error.WriteLine("[instagram] input.validate: checking source video");
         localPath = Path.GetFullPath(localPath);
         if (!File.Exists(localPath)) throw new FileNotFoundException("Video not found.", localPath);
         if (!new[] { ".mp4", ".mov", ".m4v" }.Contains(Path.GetExtension(localPath), StringComparer.OrdinalIgnoreCase))
@@ -24,6 +25,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         // Allow the 200-second post-Share monitor plus upload and UI preparation.
         timeout.CancelAfter(TimeSpan.FromMinutes(8));
         var ct = timeout.Token;
+        Console.Error.WriteLine("[instagram] device.check: connecting to Android");
         var adb = new AdbClient(options.AdbPath);
         var devices = await adb.DevicesAsync(ct);
         if (!devices.Split('\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\tdevice", StringComparison.Ordinal)))
@@ -37,9 +39,11 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         var name = $"sp_{hash[..16]}_{Path.GetFileName(localPath)}";
         var remotePath = $"{options.AndroidMediaDirectory.TrimEnd('/')}/{name}";
         await adb.ShellAsync(options.DeviceId, ct, "mkdir", "-p", options.AndroidMediaDirectory);
+        Console.Error.WriteLine("[instagram] media.push: uploading video to Android");
         await adb.PushAsync(options.DeviceId, localPath, remotePath, ct);
         var remoteHashOutput = await adb.ShellAsync(options.DeviceId, ct, "sha256sum", remotePath);
         var remoteHash = remoteHashOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        Console.Error.WriteLine("[instagram] media.verify: checking SHA-256");
         if (!string.Equals(hash, remoteHash, StringComparison.OrdinalIgnoreCase))
             throw new InvalidOperationException($"Android SHA-256 mismatch: expected {hash}, got {remoteHash ?? "<empty>"}.");
 
@@ -53,20 +57,29 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
             : new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         using var instagram = new InstagramPublisher(options);
+        Console.Error.WriteLine("[instagram] app.open: opening Instagram");
         instagram.OpenInstagram();
+        Console.Error.WriteLine("[instagram] app.home: navigating to Home");
         instagram.instagramHome();
+        Console.Error.WriteLine("[instagram] reel.create: opening creation flow");
         instagram.instagramCreate();
+        Console.Error.WriteLine("[instagram] reel.select: choosing Reel");
         instagram.instagramSelectReel();
+        Console.Error.WriteLine("[instagram] gallery.wait: waiting for media gallery");
         instagram.WaitForGallery();
 
         // Temporary selection policy: first visible video tile, excluding camera.
+        Console.Error.WriteLine("[instagram] gallery.select: selecting first video");
         instagram.SelectFirstGalleryVideo();
+        Console.Error.WriteLine("[instagram] caption.fill: entering and verifying caption");
         instagram.FillReelCaption(caption);
+        Console.Error.WriteLine("[instagram] publication.start: sharing Reel");
         var publication = instagram.ShareAndMonitorPublication(caption);
         if (!publication.Confirmed)
             throw new InstagramPublicationUnverifiedException($"Instagram Share clicked; publication outcome unknown. Do not retry. Last XML: {publication.DiagnosticXmlPath}");
         // Publication is already confirmed. Cleanup is best-effort and must never
         // turn a successful post into a failed job (which could invite a retry).
+        Console.Error.WriteLine("[instagram] publication.confirmed: beginning post-publish cleanup");
         try { instagram.CloseInstagramAfterPublication(); }
         catch (Exception ex) { Console.Error.WriteLine($"Instagram post-publish close failed: {ex.Message}"); }
 
@@ -77,6 +90,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
             if (!name.StartsWith("sp_" + hash[..16] + "_", StringComparison.Ordinal) ||
                 !remotePath.StartsWith(options.AndroidMediaDirectory.TrimEnd('/') + "/", StringComparison.Ordinal))
                 throw new InvalidOperationException("Unsafe Android media cleanup path.");
+            Console.Error.WriteLine("[instagram] cleanup.media: removing uploaded Android copy");
             await adb.ShellAsync(options.DeviceId, CancellationToken.None, "rm", "--", remotePath);
             await adb.ShellAsync(options.DeviceId, CancellationToken.None, "am", "broadcast",
                 "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
@@ -90,6 +104,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         }
         catch (Exception ex) { Console.Error.WriteLine($"Instagram gallery diagnostics cleanup failed: {ex.Message}"); }
 
+        Console.Error.WriteLine("[instagram] publication.complete: confirmed; cleanup attempted");
         return new OpenAttempt(hash, remotePath, null, publication.DiagnosticXmlPath, publication.PostUrl);
     }
 
