@@ -107,7 +107,9 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
     {
         // The only success signal is Instagram's own "Done posting" status.
         // Never click Share again after the first attempt.
+        Console.Error.WriteLine("[instagram] publication.share: clicking Share");
         ClickWhenReady("com.instagram.android:id/share_button", "Share");
+        Console.Error.WriteLine("[instagram] publication.monitor: waiting for Done posting (200s)");
         var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
         Directory.CreateDirectory(directory);
         var deadline = Stopwatch.StartNew();
@@ -128,21 +130,8 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
                     if (!value.Contains("Done posting", StringComparison.OrdinalIgnoreCase))
                         continue;
 
-                    // The confirmation is already observed. XML is optional evidence;
-                    // a slow or failed PageSource must never revoke publication success.
-                    var evidencePath = "";
-                    try
-                    {
-                        var source = _driver.PageSource;
-                        evidencePath = Path.GetFullPath(Path.Combine(directory,
-                            $"instagram_post_share_confirmed_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
-                        File.WriteAllText(evidencePath, source, new System.Text.UTF8Encoding(false));
-                    }
-                    catch (Exception ex)
-                    {
-                        Console.Error.WriteLine($"Instagram confirmation observed; optional XML capture failed: {ex.Message}");
-                    }
-                    return (true, evidencePath, null);
+                    Console.Error.WriteLine("[instagram] publication.confirmed: Done posting observed");
+                    return (true, "", null);
                 }
             }
             catch (OpenQA.Selenium.WebDriverException ex)
@@ -178,10 +167,13 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
     /// <summary>Return to Instagram Home and terminate the app after confirmed publication.</summary>
     public void CloseInstagramAfterPublication()
     {
+        Console.Error.WriteLine("[instagram] cleanup.home: navigating to Home");
         instagramHome();
         Thread.Sleep(500);
         Connect();
-        _driver!.TerminateApp("com.instagram.android");
+        Console.Error.WriteLine("[instagram] cleanup.terminate: stopping Instagram");
+        _driver!.TerminateApp("com.instagram.android", TimeSpan.FromSeconds(10));
+        Console.Error.WriteLine("[instagram] cleanup.terminate: completed");
     }
 
     private static string NormalizeCaption(string value) =>
@@ -290,12 +282,14 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         caps.AddAdditionalAppiumOption("appPackage", "com.instagram.android");
         caps.AddAdditionalAppiumOption("noReset", true);
         caps.AddAdditionalAppiumOption("newCommandTimeout", 180);
-        _driver = new AndroidDriver(new Uri(_options.AppiumServer), caps, TimeSpan.FromMinutes(3));
+        _driver = new AndroidDriver(new Uri(_options.AppiumServer), caps, TimeSpan.FromSeconds(30));
     }
 
     public void Dispose()
     {
-        try { _driver?.Quit(); } catch { }
-        _driver?.Dispose();
+        Console.Error.WriteLine("[instagram] session.quit: starting");
+        try { _driver?.Quit(); } catch (Exception ex) { Console.Error.WriteLine($"[instagram] session.quit warning: {ex.Message}"); }
+        Console.Error.WriteLine("[instagram] session.quit: finished");
+        try { _driver?.Dispose(); } catch (Exception ex) { Console.Error.WriteLine($"[instagram] session.dispose warning: {ex.Message}"); }
     }
 }
