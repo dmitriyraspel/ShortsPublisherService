@@ -109,8 +109,8 @@ try
         if (string.IsNullOrWhiteSpace(filePath))
             return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-instagram requires --file.", startedAt), resultFile, ExitBadArguments);
         var preparation = await new InstagramVideoSelector(options).PrepareGalleryAsync(filePath, CancellationToken.None);
-        return await EmitAsync(new JobResult(taskId, "instagram_gallery_ready", true, false,
-            filePath, $"Android SHA-256 verified. Instagram Reel gallery opened; video NOT selected or published. XML: {preparation.DiagnosticXmlPath}",
+        return await EmitAsync(new JobResult(taskId, "instagram_video_selected", true, false,
+            filePath, $"Android SHA-256 verified. Instagram Reel video selected; preview confirmed; NOT published. XML: {preparation.DiagnosticXmlPath}",
             preparation.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
@@ -376,7 +376,7 @@ static void PrintUsage()
       --publish-video-youtube  Backwards-compatible switch.
       --open-instagram     Open Instagram without publishing.
       --instagram-open-video  Verify and share a specific video to Instagram (no publication).
-      --publish-video-instagram  Prepare video and open Reel gallery; DOES NOT publish.
+      --publish-video-instagram  Select video in Reel gallery and confirm preview; DOES NOT publish.
       --diagnose-ui        Save current Android screen XML to diagnostics.
       --help, -h           Show this help.
 
