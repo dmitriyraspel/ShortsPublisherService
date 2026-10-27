@@ -298,6 +298,11 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
         resultFile,
         observation.Published ? ExitSuccess : ExitFailure);
 }
+catch (InstagramPublicationUnverifiedException ex)
+{
+    Console.Error.WriteLine(ex.Message);
+    return await EmitAsync(Failure(taskId, "instagram_publication_unverified", ex.Message, startedAt, filePath), resultFile, ExitFailure);
+}
 catch (Exception ex)
 {
     Console.Error.WriteLine(ex.Message);
