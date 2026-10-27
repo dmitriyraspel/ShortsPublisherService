@@ -100,15 +100,16 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         var deadline = Stopwatch.StartNew();
         string lastPath = "";
         var attempt = 0;
-        var samples = new System.Collections.Generic.List<string>();
         while (deadline.Elapsed < TimeSpan.FromSeconds(150))
         {
             attempt++;
+            var snapshotTimer = Stopwatch.StartNew();
             var source = _driver!.PageSource;
+            snapshotTimer.Stop();
+            Console.Error.WriteLine($"Instagram publication poll #{attempt}: PageSource took {snapshotTimer.ElapsedMilliseconds} ms; elapsed {deadline.Elapsed.TotalSeconds:F1}s.");
             lastPath = Path.GetFullPath(Path.Combine(directory,
                 $"instagram_post_share_{DateTime.Now:yyyyMMdd_HHmmss_fff}_{attempt:D2}.xml"));
             File.WriteAllText(lastPath, source, new System.Text.UTF8Encoding(false));
-            samples.Add(lastPath);
             try
             {
                 var nodes = XDocument.Parse(source).Descendants().ToArray();
@@ -120,10 +121,6 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
                 {
                     // The snackbar may disappear quickly. Preserve proof and avoid
                     // interacting with a different Reel shown in the background feed.
-                    foreach (var sample in samples.Where(path => path != lastPath))
-                    {
-                        try { File.Delete(sample); } catch (IOException) { } catch (UnauthorizedAccessException) { }
-                    }
                     return (true, lastPath, null);
                 }
             }
