@@ -56,9 +56,9 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         // Temporary selection policy: first visible video tile, excluding camera.
         instagram.SelectFirstGalleryVideo();
         instagram.FillReelCaption(caption);
-        var publication = instagram.ShareAndMonitorPublication();
+        var publication = instagram.ShareAndMonitorPublication(caption);
         if (!publication.Confirmed)
-            throw new InvalidOperationException($"Instagram Share was clicked, but publication was not confirmed within 60 seconds. Last XML: {publication.DiagnosticXmlPath}");
+            throw new InvalidOperationException($"Instagram Share was clicked, but publication was not confirmed within 150 seconds. Last XML: {publication.DiagnosticXmlPath}");
         return new OpenAttempt(hash, remotePath, null, publication.DiagnosticXmlPath);
     }
 
