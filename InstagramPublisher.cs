@@ -118,7 +118,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
                 {
                     // The snackbar may disappear quickly. Preserve proof and avoid
                     // interacting with a different Reel shown in the background feed.
-                    return (true, lastPath, null);
+                    return (true, lastPath, TryCopyPublishedReelUrlFromSnackbar(directory));
                 }
             }
             catch (System.Xml.XmlException)
@@ -130,6 +130,61 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
                 Thread.Sleep(remaining < TimeSpan.FromSeconds(2) ? remaining : TimeSpan.FromSeconds(2));
         }
         return (false, lastPath, null);
+    }
+
+    private string? TryCopyPublishedReelUrlFromSnackbar(string directory)
+    {
+        try
+        {
+            // Only the Send action paired with the "Done posting" snackbar belongs
+            // to the newly published Reel. Never use the background feed Share button.
+            var source = XDocument.Parse(_driver!.PageSource);
+            var nodes = source.Descendants().ToArray();
+            if (!nodes.Any(n =>
+                (string?)n.Attribute("resource-id") == "com.instagram.android:id/status_text" &&
+                ((string?)n.Attribute("text") ?? "").Contains("Done posting", StringComparison.OrdinalIgnoreCase)))
+                return null;
+            var send = nodes.FirstOrDefault(n =>
+                (string?)n.Attribute("resource-id") == "com.instagram.android:id/upload_snackbar_button" &&
+                string.Equals((string?)n.Attribute("text"), "Send", StringComparison.OrdinalIgnoreCase));
+            if (send is null) return null;
+            var button = _driver.FindElements(OpenQA.Selenium.By.Id("com.instagram.android:id/upload_snackbar_button"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled &&
+                    string.Equals(e.Text, "Send", StringComparison.OrdinalIgnoreCase));
+            if (button is null) return null;
+            button.Click();
+            Thread.Sleep(800);
+            var shareSource = _driver.PageSource;
+            var sharePath = Path.GetFullPath(Path.Combine(directory,
+                $"instagram_post_share_send_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+            File.WriteAllText(sharePath, shareSource, new System.Text.UTF8Encoding(false));
+            var shareDocument = XDocument.Parse(shareSource);
+            if (!shareDocument.Descendants().Any(n =>
+                string.Equals((string?)n.Attribute("text"), "Copy link", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals((string?)n.Attribute("content-desc"), "Copy link", StringComparison.OrdinalIgnoreCase)))
+                return null;
+            var copy = _driver.FindElements(OpenQA.Selenium.By.XPath(
+                "//*[@text='Copy link' or @content-desc='Copy link']"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled);
+            if (copy is null) return null;
+            copy.Click();
+            Thread.Sleep(400);
+            var clipboardMethod = _driver.GetType().GetMethod("GetClipboardText", Type.EmptyTypes);
+            var clipboard = clipboardMethod?.Invoke(_driver, null) as string;
+            if (string.IsNullOrWhiteSpace(clipboard)) return null;
+            var match = System.Text.RegularExpressions.Regex.Match(clipboard,
+                @"https://(?:www\\.)?instagram\\.com/(?:reel|reels|p)/[A-Za-z0-9_-]+/?(?:\\?[^\\s]*)?",
+                System.Text.RegularExpressions.RegexOptions.IgnoreCase);
+            if (!match.Success) return null;
+            var url = match.Value;
+            File.WriteAllText(Path.Combine(directory, "instagram_published_reel_url.txt"), url + Environment.NewLine);
+            return url;
+        }
+        catch (Exception)
+        {
+            // Link extraction is best-effort; the observed Done posting is definitive.
+            return null;
+        }
     }
 
     private string? TryCopyPublishedReelUrl(string directory)
