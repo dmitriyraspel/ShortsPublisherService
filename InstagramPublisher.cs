@@ -61,7 +61,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         {
             try
             {
-                var matches = _driver!.FindElements(AppiumBy.Id(resourceId));
+                var matches = _driver!.FindElements(OpenQA.Selenium.By.Id(resourceId));
                 foreach (var element in matches)
                 {
                     if (!element.Displayed || !element.Enabled) continue;
