@@ -174,7 +174,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
             var clipboard = method?.Invoke(_driver, null) as string;
             if (string.IsNullOrWhiteSpace(clipboard)) return null;
             var match = System.Text.RegularExpressions.Regex.Match(clipboard,
-                @"https://(?:www\\.)?instagram\\.com/(?:reel|reels|p)/[A-Za-z0-9_-]+/?(?:\\?[^\\s]*)?",
+                @"https://(?:www\.)?instagram\.com/(?:reel|reels|p)/[A-Za-z0-9_-]+/?(?:\?[^\s]*)?",
                 System.Text.RegularExpressions.RegexOptions.IgnoreCase);
             if (!match.Success) return null;
             var url = match.Value;
