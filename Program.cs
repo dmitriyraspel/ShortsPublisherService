@@ -112,7 +112,7 @@ try
             return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-instagram requires --caption.", startedAt), resultFile, ExitBadArguments);
         var preparation = await new InstagramVideoSelector(options).PrepareGalleryAsync(filePath, caption, CancellationToken.None);
         return await EmitAsync(new JobResult(taskId, "instagram_published_confirmed", true, true,
-            filePath, $"Android SHA-256 verified. Instagram Share clicked; explicit publication confirmation detected. Evidence XML: {preparation.DiagnosticXmlPath}",
+            filePath, $"Android SHA-256 verified. Instagram Share clicked; explicit publication confirmation detected. Evidence XML: {preparation.DiagnosticXmlPath}. Published Reel URL: {preparation.PostUrl ?? "<unavailable>"}",
             preparation.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
