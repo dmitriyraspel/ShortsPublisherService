@@ -21,7 +21,8 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         if (new FileInfo(localPath).Length == 0) throw new InvalidOperationException("Video is empty.");
 
         using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-        timeout.CancelAfter(TimeSpan.FromMinutes(3));
+        // Allow the 200-second post-Share monitor plus upload and UI preparation.
+        timeout.CancelAfter(TimeSpan.FromMinutes(8));
         var ct = timeout.Token;
         var adb = new AdbClient(options.AdbPath);
         var devices = await adb.DevicesAsync(ct);
