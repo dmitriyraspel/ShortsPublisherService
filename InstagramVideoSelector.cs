@@ -60,28 +60,62 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         instagram.instagramSelectReel();
         instagram.WaitForGallery();
 
-        // MediaStore duration belongs to the verified content-addressed filename.
-        // If indexing is incomplete, stop rather than tapping an arbitrary thumbnail.
-        string rows = "";
-        for (var attempt = 0; attempt < 8; attempt++)
-        {
-            rows = await adb.ShellAsync(options.DeviceId, ct, "content", "query",
-                "--uri", "content://media/external/video/media",
-                "--projection", "_id:display_name:duration",
-                "--where", $"_display_name='{name}'");
-            if (Regex.IsMatch(rows, @"(?:^|[,\\s])duration=\\d+")) break;
-            await Task.Delay(750, ct);
-        }
-        var durations = Regex.Matches(rows, @"(?:^|[,\\s])duration=(\\d+)")
-            .Select(m => long.Parse(m.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture))
-            .ToArray();
-        var ids = Regex.Matches(rows, @"(?:^|[,\\s])_id=(\\d+)").Count;
-        if (ids != 1 || durations.Length != 1)
-            throw new InvalidOperationException(
-                $"Could not uniquely identify verified video in Android MediaStore; nothing selected. Response: {rows}");
-        var xml = instagram.SelectVideoByGalleryMetadata(
-            TimeSpan.FromMilliseconds(durations[0]), transferStartedLocal);
+        // MediaStore may be empty on emulators. Read duration directly from the local MP4.
+        var duration = ReadMp4Duration(localPath);
+        var xml = instagram.SelectVideoByGalleryMetadata(duration, transferStartedLocal);
         return new OpenAttempt(hash, remotePath, null, xml);
+    }
+
+    // ISO BMFF mvhd duration (supports version 0 and 1, no external ffprobe dependency).
+    private static TimeSpan ReadMp4Duration(string path)
+    {
+        using var stream = File.OpenRead(path);
+        using var reader = new BinaryReader(stream);
+        static uint U32(BinaryReader r)
+        {
+            var bytes = r.ReadBytes(4);
+            if (bytes.Length != 4) throw new EndOfStreamException();
+            if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
+            return BitConverter.ToUInt32(bytes);
+        }
+        static ulong U64(BinaryReader r)
+        {
+            var bytes = r.ReadBytes(8);
+            if (bytes.Length != 8) throw new EndOfStreamException();
+            if (BitConverter.IsLittleEndian) Array.Reverse(bytes);
+            return BitConverter.ToUInt64(bytes);
+        }
+        static (long Start, long End) FindBox(BinaryReader r, long from, long to, string type)
+        {
+            r.BaseStream.Position = from;
+            while (r.BaseStream.Position + 8 <= to)
+            {
+                var start = r.BaseStream.Position;
+                var size = U32(r);
+                var tag = System.Text.Encoding.ASCII.GetString(r.ReadBytes(4));
+                var header = 8L;
+                long length = size;
+                if (size == 1) { length = checked((long)U64(r)); header = 16; }
+                else if (size == 0) length = to - start;
+                if (length < header || length > to - start) break;
+                if (tag == type) return (start + header, start + length);
+                r.BaseStream.Position = start + length;
+            }
+            throw new InvalidOperationException($"MP4 box {type} not found. Nothing selected.");
+        }
+        var moov = FindBox(reader, 0, stream.Length, "moov");
+        var mvhd = FindBox(reader, moov.Start, moov.End, "mvhd");
+        stream.Position = mvhd.Start;
+        var version = reader.ReadByte();
+        reader.ReadBytes(3);
+        if (version == 1) reader.ReadBytes(16);
+        else if (version == 0) reader.ReadBytes(8);
+        else throw new InvalidOperationException("Unsupported MP4 mvhd version. Nothing selected.");
+        var timescale = U32(reader);
+        var ticks = version == 1 ? U64(reader) : U32(reader);
+        if (timescale == 0 || ticks == 0)
+            throw new InvalidOperationException("Invalid MP4 duration. Nothing selected.");
+        return TimeSpan.FromSeconds((double)ticks / timescale);
     }
 
     public async Task<OpenAttempt> OpenVideoAsync(string localPath, CancellationToken cancellationToken)
