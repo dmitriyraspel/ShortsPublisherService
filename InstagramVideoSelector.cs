@@ -63,7 +63,7 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         instagram.FillReelCaption(caption);
         var publication = instagram.ShareAndMonitorPublication(caption);
         if (!publication.Confirmed)
-            throw new InvalidOperationException($"Instagram Share was clicked, but publication was not confirmed within 150 seconds. Last XML: {publication.DiagnosticXmlPath}");
+            throw new InstagramPublicationUnverifiedException($"Instagram Share clicked; publication outcome unknown. Do not retry. Last XML: {publication.DiagnosticXmlPath}");
         // Publication is already confirmed. Cleanup is best-effort and must never
         // turn a successful post into a failed job (which could invite a retry).
         try { instagram.CloseInstagramAfterPublication(); }
@@ -155,3 +155,5 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         return new OpenAttempt(hash, remotePath, uri, xml);
     }
 }
+
+public sealed class InstagramPublicationUnverifiedException(string message) : Exception(message);
