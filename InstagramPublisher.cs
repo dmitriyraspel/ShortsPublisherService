@@ -39,6 +39,19 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
 
     public void WaitForGallery() => WaitForElement("com.instagram.android:id/gallery_recycler_view");
 
+    public string SaveCurrentScreenXml(string? outputDirectory = null)
+    {
+        Connect();
+        outputDirectory ??= Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+        Directory.CreateDirectory(outputDirectory);
+        var path = Path.GetFullPath(Path.Combine(outputDirectory,
+            $"screen_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+        var source = _driver!.PageSource;
+        XDocument.Parse(source);
+        File.WriteAllText(path, source, new System.Text.UTF8Encoding(false));
+        return path;
+    }
+
     public string SaveGalleryXml()
     {
         Connect();
