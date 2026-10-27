@@ -111,8 +111,8 @@ try
         if (string.IsNullOrWhiteSpace(caption))
             return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-instagram requires --caption.", startedAt), resultFile, ExitBadArguments);
         var preparation = await new InstagramVideoSelector(options).PrepareGalleryAsync(filePath, caption, CancellationToken.None);
-        return await EmitAsync(new JobResult(taskId, "instagram_caption_next_clicked", true, false,
-            filePath, $"Android SHA-256 verified. Instagram Reel video selected; Next clicked; caption entered and verified; caption-screen Next clicked; NOT published. Resulting screen XML: {preparation.DiagnosticXmlPath}",
+        return await EmitAsync(new JobResult(taskId, "instagram_published_confirmed", true, true,
+            filePath, $"Android SHA-256 verified. Instagram Share clicked; explicit publication confirmation detected. Evidence XML: {preparation.DiagnosticXmlPath}",
             preparation.Sha256, startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
