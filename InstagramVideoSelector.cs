@@ -51,49 +51,13 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         using var instagram = new InstagramPublisher(options);
         instagram.OpenInstagram();
         instagram.instagramHome();
-        await WaitForUiAsync(adb, "com.instagram.android:id/action_bar_left_button", ct);
         instagram.instagramCreate();
-        await WaitForUiAsync(adb, "com.instagram.android:id/cam_dest_clips", ct);
         instagram.instagramSelectReel();
-        await WaitForUiAsync(adb, "com.instagram.android:id/gallery_recycler_view", ct);
+        instagram.WaitForGallery();
 
-        var xml = new AndroidDiagnostics(options).SaveCurrentScreenXml();
+        var xml = instagram.SaveGalleryXml();
         // Never claim that the media thumbnail matches the file based on gallery order.
         return new OpenAttempt(hash, remotePath, null, xml);
-    }
-
-    private async Task WaitForUiAsync(AdbClient adb, string resourceId, CancellationToken ct)
-    {
-        var deadline = DateTime.UtcNow.AddSeconds(30);
-        string lastError = "Element not present";
-        while (DateTime.UtcNow < deadline)
-        {
-            ct.ThrowIfCancellationRequested();
-            var path = $"/sdcard/sp_wait_{Guid.NewGuid():N}.xml";
-            try
-            {
-                var output = await adb.ShellAsync(options.DeviceId, ct, "uiautomator", "dump", path);
-                var xml = await adb.ShellAsync(options.DeviceId, ct, "cat", path);
-                var doc = System.Xml.Linq.XDocument.Parse(xml);
-                if (doc.Descendants("node").Any(n =>
-                    (string?)n.Attribute("resource-id") == resourceId &&
-                    (string?)n.Attribute("enabled") == "true"))
-                    return;
-                lastError = $"Element {resourceId} not present in current hierarchy.";
-            }
-            catch (Exception ex) when (ex is not OperationCanceledException)
-            {
-                lastError = ex.Message;
-            }
-            finally
-            {
-                try { await adb.ShellAsync(options.DeviceId, ct, "rm", "-f", path); }
-                catch (OperationCanceledException) { throw; }
-                catch { /* best effort cleanup */ }
-            }
-            await Task.Delay(1200, ct);
-        }
-        throw new TimeoutException($"Waiting for Instagram UI element {resourceId} timed out. Last error: {lastError}");
     }
 
     public async Task<OpenAttempt> OpenVideoAsync(string localPath, CancellationToken cancellationToken)
