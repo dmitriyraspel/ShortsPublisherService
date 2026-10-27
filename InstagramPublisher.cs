@@ -32,217 +32,60 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         RunAdb("-s", _options.DeviceId, "shell", "input", "tap", "108", "2274");
     }
 
-    // перед create обязательно нажать Home иначе интерфейс другой
-    public void instagramCreate()
+    // Reuse one Appium session. No adb uiautomator dumps between actions.
+    public void instagramCreate() => ClickWhenReady("com.instagram.android:id/action_bar_left_button");
+
+    public void instagramSelectReel() => ClickWhenReady("com.instagram.android:id/cam_dest_clips", "REEL");
+
+    public void WaitForGallery() => WaitForElement("com.instagram.android:id/gallery_recycler_view");
+
+    public string SaveGalleryXml()
     {
-        const string targetResourceId =
-            "com.instagram.android:id/action_bar_left_button";
-
-        const string remotePath = "/sdcard/shorts_publisher_screen.xml";
-
-        try
-        {
-            // Получаем актуальную иерархию экрана.
-            var dump = DumpWithRetry(remotePath);
-
-            if (dump.ExitCode != 0)
-            {
-                throw new InvalidOperationException(
-                    $"Не удалось получить XML экрана: exit={dump.ExitCode}; stdout={dump.StdOut}; stderr={dump.StdErr}");
-            }
-
-            var read = RunAdb(
-                "-s", _options.DeviceId,
-                "shell", "cat", remotePath);
-
-            if (read.ExitCode != 0 ||
-                string.IsNullOrWhiteSpace(read.StdOut))
-            {
-                throw new InvalidOperationException(
-                    $"Не удалось прочитать XML экрана: {read.StdErr}");
-            }
-
-            var document = XDocument.Parse(read.StdOut);
-
-            // Ищем элемент по ID, а не по видимой надписи.
-            var matches = document
-                .Descendants("node")
-                .Where(node =>
-                    (string?)node.Attribute("resource-id") == targetResourceId &&
-                    (string?)node.Attribute("clickable") == "true" &&
-                    (string?)node.Attribute("enabled") == "true")
-                .ToList();
-
-            if (matches.Count != 1)
-            {
-                throw new InvalidOperationException(
-                    $"Ожидался ровно один доступный элемент " +
-                    $"{targetResourceId}, найдено: {matches.Count}. " +
-                    "Нажатие отменено.");
-            }
-
-            var bounds = (string?)matches[0].Attribute("bounds");
-
-            if (string.IsNullOrWhiteSpace(bounds))
-            {
-                throw new InvalidOperationException(
-                    "У найденного элемента отсутствует bounds. " +
-                    "Нажатие отменено.");
-            }
-
-            // Формат bounds: [x1,y1][x2,y2]
-            var parts = bounds.Trim('[', ']').Split("][");
-
-            if (parts.Length != 2)
-            {
-                throw new InvalidOperationException(
-                    $"Не удалось разобрать bounds: {bounds}");
-            }
-
-            var topLeft = parts[0].Split(',');
-            var bottomRight = parts[1].Split(',');
-
-            if (topLeft.Length != 2 ||
-                bottomRight.Length != 2 ||
-                !int.TryParse(topLeft[0], out var x1) ||
-                !int.TryParse(topLeft[1], out var y1) ||
-                !int.TryParse(bottomRight[0], out var x2) ||
-                !int.TryParse(bottomRight[1], out var y2))
-            {
-                throw new InvalidOperationException(
-                    $"Некорректные координаты элемента: {bounds}");
-            }
-
-            if (x2 <= x1 || y2 <= y1)
-            {
-                throw new InvalidOperationException(
-                    $"Пустая область элемента: {bounds}");
-            }
-
-            var centerX = x1 + (x2 - x1) / 2;
-            var centerY = y1 + (y2 - y1) / 2;
-
-            Console.WriteLine(
-                $"Найдена кнопка {targetResourceId}, " +
-                $"bounds={bounds}, нажимаем ({centerX}, {centerY}).");
-
-            var tap = RunAdb(
-                "-s", _options.DeviceId,
-                "shell", "input", "tap",
-                centerX.ToString(),
-                centerY.ToString());
-
-            if (tap.ExitCode != 0)
-            {
-                throw new InvalidOperationException(
-                    $"Ошибка нажатия: {tap.StdErr}");
-            }
-        }
-        finally
-        {
-            // Удаляем временный XML с устройства.
-            RunAdb(
-                "-s", _options.DeviceId,
-                "shell", "rm", "-f", remotePath);
-        }
+        Connect();
+        var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+        Directory.CreateDirectory(directory);
+        var path = Path.GetFullPath(Path.Combine(directory,
+            $"instagram_gallery_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+        var source = _driver!.PageSource;
+        System.Xml.Linq.XDocument.Parse(source);
+        File.WriteAllText(path, source, new System.Text.UTF8Encoding(false));
+        return path;
     }
 
-
-    public void instagramSelectReel()
+    private OpenQA.Selenium.Appium.AppiumElement WaitForElement(string resourceId, string? expectedText = null)
     {
-        // Получаем актуальную иерархию Android UI в памяти.
-        // Локальный XML-файл не создаётся.
-        const string remoteXmlPath = "/sdcard/shorts_publisher_screen.xml";
-
-        var dump = DumpWithRetry(remoteXmlPath);
-
-        if (dump.ExitCode != 0)
+        Connect();
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        Exception? lastError = null;
+        while (DateTime.UtcNow < deadline)
         {
-            throw new InvalidOperationException(
-                "Could not dump the current Android screen. " +
-                $"ExitCode={dump.ExitCode}; stdout={dump.StdOut}; stderr={dump.StdErr}");
+            try
+            {
+                var matches = _driver!.FindElements(AppiumBy.Id(resourceId));
+                foreach (var element in matches)
+                {
+                    if (!element.Displayed || !element.Enabled) continue;
+                    if (expectedText is not null &&
+                        !string.Equals(element.Text, expectedText, StringComparison.OrdinalIgnoreCase) &&
+                        !string.Equals(element.GetAttribute("content-desc"), expectedText, StringComparison.OrdinalIgnoreCase))
+                        continue;
+                    return element;
+                }
+            }
+            catch (OpenQA.Selenium.WebDriverException ex)
+            {
+                lastError = ex;
+            }
+            Thread.Sleep(750);
         }
-
-        var read = RunAdb(
-            "-s", _options.DeviceId,
-            "shell", "cat", remoteXmlPath);
-
-        // Удаляем временный XML с Android после чтения.
-        RunAdb(
-            "-s", _options.DeviceId,
-            "shell", "rm", "-f", remoteXmlPath);
-
-        if (read.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                "Could not read the Android UI XML. " +
-                $"ExitCode={read.ExitCode}; stderr={read.StdErr}");
-        }
-
-        if (string.IsNullOrWhiteSpace(read.StdOut))
-        {
-            throw new InvalidOperationException(
-                "Android returned an empty UI hierarchy.");
-        }
-
-        var document = XDocument.Parse(read.StdOut);
-
-        var reelNode = document
-            .Descendants("node")
-            .FirstOrDefault(node =>
-                (string?)node.Attribute("resource-id") ==
-                    "com.instagram.android:id/cam_dest_clips"
-                && ((string?)node.Attribute("text") == "REEL"
-                    || (string?)node.Attribute("content-desc") == "REEL")
-                && (string?)node.Attribute("clickable") == "true"
-                && (string?)node.Attribute("enabled") == "true");
-
-        if (reelNode is null)
-        {
-            throw new InvalidOperationException(
-                "Could not find an enabled, clickable REEL tab in the current Android UI.");
-        }
-
-        var bounds = (string?)reelNode.Attribute("bounds");
-        var match = System.Text.RegularExpressions.Regex.Match(
-            bounds ?? string.Empty,
-            @"\[(\d+),(\d+)\]\[(\d+),(\d+)\]");
-
-        if (!match.Success)
-        {
-            throw new InvalidOperationException(
-                $"Could not parse REEL tab bounds: {bounds}");
-        }
-
-        int left = int.Parse(match.Groups[1].Value, System.Globalization.CultureInfo.InvariantCulture);
-        int top = int.Parse(match.Groups[2].Value, System.Globalization.CultureInfo.InvariantCulture);
-        int right = int.Parse(match.Groups[3].Value, System.Globalization.CultureInfo.InvariantCulture);
-        int bottom = int.Parse(match.Groups[4].Value, System.Globalization.CultureInfo.InvariantCulture);
-
-        if (right <= left || bottom <= top)
-        {
-            throw new InvalidOperationException(
-                $"REEL tab has invalid bounds: {bounds}");
-        }
-
-        int centerX = left + (right - left) / 2;
-        int centerY = top + (bottom - top) / 2;
-
-        var tap = RunAdb(
-            "-s", _options.DeviceId,
-            "shell", "input", "tap",
-            centerX.ToString(System.Globalization.CultureInfo.InvariantCulture),
-            centerY.ToString(System.Globalization.CultureInfo.InvariantCulture));
-
-        if (tap.ExitCode != 0)
-        {
-            throw new InvalidOperationException(
-                "Could not tap the REEL tab. " +
-                $"ExitCode={tap.ExitCode}; stdout={tap.StdOut}; stderr={tap.StdErr}");
-        }
+        throw new TimeoutException($"Instagram element {resourceId} did not appear within 30 seconds. Last Appium error: {lastError?.Message ?? "none"}");
     }
 
-
+    private void ClickWhenReady(string resourceId, string? expectedText = null)
+    {
+        var element = WaitForElement(resourceId, expectedText);
+        element.Click();
+    }
 
     private (int ExitCode, string StdOut, string StdErr) DumpWithRetry(string remotePath)
     {
