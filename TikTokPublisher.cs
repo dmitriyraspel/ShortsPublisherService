@@ -45,6 +45,17 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] create.open: tap completed");
     }
 
+    /// <summary>Open the media gallery from TikTok's Create screen.</summary>
+    public async Task OpenGalleryAsync(CancellationToken cancellationToken = default)
+    {
+        Console.Error.WriteLine("[tiktok] gallery.open: tapping bottom-left Upload button");
+        var adb = new AdbClient(options.AdbPath);
+        // Diagnosed UI: com.zhiliaoapp.musically:id/upload_hot_area,
+        // bounds=[0,2135][179,2314] on the 1080x2400 emulator.
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "90", "2225");
+        Console.Error.WriteLine("[tiktok] gallery.open: tap completed");
+    }
+
     /// <summary>
     /// Safe placeholder. Does not press Upload, Next, Post, or Share.
     /// Future stages will be implemented after UI XML inspection.
