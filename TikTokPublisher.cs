@@ -184,8 +184,8 @@ public sealed class TikTokPublisher(PublisherOptions options)
             throw new ArgumentException("Caption must not be empty.", nameof(caption));
         // ADB input text is reliable here only for simple ASCII text. Fail closed
         // rather than silently publishing a corrupted Unicode/special-character caption.
-        if (caption.Any(ch => !(char.IsAsciiLetterOrDigit(ch) || ch == ' ' || ch == '-' || ch == '_' || ch == '.' || ch == ',' || ch == '!' || ch == '?')))
-            throw new NotSupportedException("TikTok caption via ADB currently supports ASCII letters, digits, spaces and - _ . , ! ? only.");
+        if (caption.Any(ch => !(char.IsAsciiLetterOrDigit(ch) || ch == ' ' || ch == '-' || ch == '_' || ch == '.' || ch == ',' || ch == '!' || ch == '?' || ch == '#')))
+            throw new NotSupportedException("TikTok caption via ADB currently supports ASCII letters, digits, spaces and - _ . , ! ? # only.");
 
         Console.Error.WriteLine("[tiktok] caption.fill: locating description field");
         await RequireUiAsync("posting caption field", x =>
