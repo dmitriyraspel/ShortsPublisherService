@@ -55,24 +55,17 @@ public sealed class TikTokPublisher(PublisherOptions options)
         for (var attempt = 1; attempt <= maxAttempts; attempt++)
         {
             ct.ThrowIfCancellationRequested();
-            Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: attempt {attempt}/{maxAttempts}");
+            if (attempt == 1) Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: checking");
             XDocument? xml = null;
             try
             {
                 xml = await ReadUiAsync(ct);
-                var nodes = xml.Descendants("node").ToList();
-                var markers = nodes.Where(n =>
-                        !string.IsNullOrEmpty((string?)n.Attribute("text")) ||
-                        !string.IsNullOrEmpty((string?)n.Attribute("content-desc")))
-                    .Select(n => $"{(string?)n.Attribute("resource-id")}:{(string?)n.Attribute("text")}:{(string?)n.Attribute("content-desc")}")
-                    .Take(12);
-                Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: nodes={nodes.Count}, markers=[{string.Join(" | ", markers)}]");
                 if (predicate(xml))
                 {
                     Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: verified on attempt {attempt}");
                     return;
                 }
-                Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: expected control absent");
+
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
@@ -303,7 +296,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] caption.ready: text verified, suggestions dismissed, keyboard back requested; Post not pressed");
     }
 
-    /// <summary>Press Post once; require visible evidence of the new video before reporting success.</summary>
+    /// <summary>Press Post once and retain only the XML that confirms publication.</summary>
     public async Task<string> PressPostAndConfirmAsync(string caption, CancellationToken cancellationToken = default)
     {
         const string postId = "com.zhiliaoapp.musically:id/tl7";
@@ -316,28 +309,35 @@ public sealed class TikTokPublisher(PublisherOptions options)
                 (string?)n.Attribute("resource-id") == postId &&
                 (string?)n.Attribute("text") == "Post" &&
                 (string?)n.Attribute("enabled") == "true" &&
-                (string?)n.Attribute("bounds") == "[550,2179][1048,2305]") &&
+                TryGetBoundsCenter((string?)n.Attribute("bounds"), out _, out _)) &&
             xml.Descendants("node").Any(n =>
                 (string?)n.Attribute("resource-id") == captionId &&
                 ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim()), cancellationToken);
 
-        var directory = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(),
-            "diagnostics", $"tiktok_post_{DateTime.Now:yyyyMMdd_HHmmss}"));
-        Directory.CreateDirectory(directory);
-        File.WriteAllText(Path.Combine(directory, "ui_00_before_post.xml"),
-            (await ReadUiAsync(cancellationToken)).ToString(), new System.Text.UTF8Encoding(false));
-        var adb = new AdbClient(options.AdbPath);
-        Console.Error.WriteLine("[tiktok] post.tap: pressing Post ONCE at (799,2242)");
-        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "799", "2242");
+        // Re-read before the irreversible tap; never rely on fixed screen coordinates.
+        var before = await ReadUiAsync(cancellationToken);
+        var button = before.Descendants("node").SingleOrDefault(n =>
+            (string?)n.Attribute("resource-id") == postId &&
+            (string?)n.Attribute("text") == "Post" &&
+            (string?)n.Attribute("enabled") == "true");
+        if (button is null || !TryGetBoundsCenter((string?)button.Attribute("bounds"), out var x, out var y) ||
+            !before.Descendants("node").Any(n =>
+                (string?)n.Attribute("resource-id") == captionId &&
+                ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim()))
+            throw new InvalidOperationException("Post button or caption changed; no tap performed.");
 
+        var adb = new AdbClient(options.AdbPath);
+        Console.Error.WriteLine($"[tiktok] post.tap: pressing Post ONCE at ({x},{y})");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", x.ToString(), y.ToString());
+
+        XDocument? lastXml = null;
         for (var i = 1; i <= 15; i++)
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             try
             {
                 var xml = await ReadUiAsync(cancellationToken);
-                var file = Path.Combine(directory, $"ui_{i:00}_after_post.xml");
-                File.WriteAllText(file, xml.ToString(), new System.Text.UTF8Encoding(false));
+                lastXml = xml;
                 bool captionMatches = xml.Descendants("node").Any(n =>
                     (string?)n.Attribute("resource-id") == descId &&
                     ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim());
@@ -347,20 +347,30 @@ public sealed class TikTokPublisher(PublisherOptions options)
                 bool videoScreen = xml.Descendants("node").Any(n =>
                     (string?)n.Attribute("resource-id") == videoId &&
                     (string?)n.Attribute("content-desc") == "Video");
-                Console.Error.WriteLine($"[tiktok] post.confirm: sample={i:00}/15 caption={captionMatches} recent={recentPost} video={videoScreen}");
                 if (captionMatches && recentPost && videoScreen)
                 {
-                    Console.Error.WriteLine($"[tiktok] publication.confirmed: UI evidence {file}");
+                    var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+                    Directory.CreateDirectory(directory);
+                    var file = Path.GetFullPath(Path.Combine(directory,
+                        $"tiktok_published_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+                    File.WriteAllText(file, xml.ToString(), new System.Text.UTF8Encoding(false));
+                    Console.Error.WriteLine($"[tiktok] publication.confirmed: {file}");
                     return file;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.Error.WriteLine($"[tiktok] post.confirm: sample={i:00}/15 dump failed: {ex.Message}");
+                Console.Error.WriteLine($"[tiktok] post.confirm: attempt {i}/15: {ex.Message}");
             }
         }
+        var failureDirectory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+        Directory.CreateDirectory(failureDirectory);
+        var failureFile = Path.GetFullPath(Path.Combine(failureDirectory,
+            $"tiktok_post_unconfirmed_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+        if (lastXml is not null)
+            File.WriteAllText(failureFile, lastXml.ToString(), new System.Text.UTF8Encoding(false));
         throw new InvalidOperationException(
-            $"TikTok Post was tapped ONCE, but publication could not be confirmed from UI. Do NOT retry automatically: it may create a duplicate. Diagnostics: {directory}");
+            $"Post was tapped once but publication was not confirmed. Do NOT retry automatically (duplicate risk). Last UI XML: {(lastXml is null ? "<unavailable>" : failureFile)}");
     }
 
     /// <summary>
