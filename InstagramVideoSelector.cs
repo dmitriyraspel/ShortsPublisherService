@@ -80,6 +80,17 @@ public sealed class InstagramVideoSelector(PublisherOptions options)
         // Publication is already confirmed. Cleanup is best-effort and must never
         // turn a successful post into a failed job (which could invite a retry).
         Console.Error.WriteLine("[instagram] publication.confirmed: beginning post-publish cleanup");
+        try
+        {
+            Console.Error.WriteLine("[instagram] cleanup.home: navigating to Home");
+            instagram.instagramHome();
+            Console.Error.WriteLine("[instagram] cleanup.home: completed");
+        }
+        catch (Exception ex)
+        {
+            // Publication is confirmed; a Home navigation failure must not cause a retry.
+            Console.Error.WriteLine($"[instagram] cleanup.home warning: {ex.Message}");
+        }
         // Temporarily leave Instagram running: isolate emulator shutdowns from app force-stop.
         // The uploaded Android video is still removed below; Appium session is disposed normally.
         Console.Error.WriteLine("[instagram] cleanup.terminate: skipped (diagnostic mode; Instagram remains open)");
