@@ -135,6 +135,46 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] editor.next: tap completed; Post not pressed");
     }
 
+    /// <summary>Enter and verify the caption on the posting screen; never press Post.</summary>
+    public async Task FillCaptionAsync(string caption, CancellationToken cancellationToken = default)
+    {
+        const string fieldId = "com.zhiliaoapp.musically:id/h_n";
+        const string postId = "com.zhiliaoapp.musically:id/tl7";
+        if (string.IsNullOrWhiteSpace(caption))
+            throw new ArgumentException("Caption must not be empty.", nameof(caption));
+        // ADB input text is reliable here only for simple ASCII text. Fail closed
+        // rather than silently publishing a corrupted Unicode/special-character caption.
+        if (caption.Any(ch => !(char.IsAsciiLetterOrDigit(ch) || ch == ' ' || ch == '-' || ch == '_' || ch == '.' || ch == ',' || ch == '!' || ch == '?')))
+            throw new NotSupportedException("TikTok caption via ADB currently supports ASCII letters, digits, spaces and - _ . , ! ? only.");
+
+        Console.Error.WriteLine("[tiktok] caption.fill: locating description field");
+        await RequireUiAsync("posting caption field", x =>
+            x.Descendants("node").Any(n =>
+                (string?)n.Attribute("resource-id") == fieldId &&
+                (string?)n.Attribute("class") == "android.widget.EditText") &&
+            HasUi(x, "resource-id", postId), cancellationToken);
+
+        var before = await ReadUiAsync(cancellationToken);
+        var field = before.Descendants("node").First(n => (string?)n.Attribute("resource-id") == fieldId);
+        var current = (string?)field.Attribute("text") ?? "";
+        if (current != "Add description..." && !string.IsNullOrEmpty(current))
+            throw new InvalidOperationException("Caption field already contains text; refusing to overwrite.");
+
+        var adb = new AdbClient(options.AdbPath);
+        // Field bounds=[42,270][673,677] in diagnosed 1080x2400 UI.
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "300", "420");
+        // adb input text uses %s to represent spaces.
+        var encoded = caption.Replace(" ", "%s");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "text", encoded);
+        await Task.Delay(400, cancellationToken);
+
+        var after = await ReadUiAsync(cancellationToken);
+        var updated = after.Descendants("node").FirstOrDefault(n => (string?)n.Attribute("resource-id") == fieldId);
+        if ((string?)updated?.Attribute("text") != caption)
+            throw new InvalidOperationException("Caption verification failed; Post was not pressed. Run --diagnose-ui.");
+        Console.Error.WriteLine("[tiktok] caption.fill: exact text verified; Post not pressed");
+    }
+
     /// <summary>
     /// Prepares video and advances through gallery; never presses Post or Share.
     /// Future stages will be implemented after UI XML inspection.
@@ -190,6 +230,8 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await PressNextAsync(cancellationToken);
         await Task.Delay(1500, cancellationToken);
         await PressEditorNextAsync(cancellationToken);
-        Console.Error.WriteLine("[tiktok] publication.pending: editor Next requested; Post not pressed; nothing published");
+        await Task.Delay(1200, cancellationToken);
+        await FillCaptionAsync(caption, cancellationToken);
+        Console.Error.WriteLine("[tiktok] publication.pending: caption verified; Post not pressed; nothing published");
     }
 }
