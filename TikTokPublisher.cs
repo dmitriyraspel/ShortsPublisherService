@@ -98,32 +98,39 @@ public sealed class TikTokPublisher(PublisherOptions options)
         }
     }
 
-    /// <summary>Tap the actual Create navigation button using its current XML bounds.</summary>
+    /// <summary>Tap Create using the visible accessibility node or its clickable ancestor.</summary>
     public async Task OpenCreateAsync(CancellationToken cancellationToken = default)
     {
         const string uploadId = "com.zhiliaoapp.musically:id/upload_hot_area";
         Console.Error.WriteLine("[tiktok] create.open: locating Create in current UI");
-        var adb = new AdbClient(options.AdbPath);
-        await RequireUiAsync("home Create", x => x.Descendants("node").Any(n =>
-            (string?)n.Attribute("content-desc") == "Create" &&
-            (string?)n.Attribute("clickable") == "true" &&
-            (string?)n.Attribute("enabled") == "true" &&
-            TryGetBoundsCenter((string?)n.Attribute("bounds"), out _, out _)), cancellationToken);
-
-        // Re-read immediately before tapping; stale coordinates can open For You instead.
+        await RequireUiAsync("home Create", x => FindCreateTapTarget(x) is not null, cancellationToken);
         var xml = await ReadUiAsync(cancellationToken);
-        var candidates = xml.Descendants("node")
-            .Where(n => (string?)n.Attribute("content-desc") == "Create" &&
-                        (string?)n.Attribute("clickable") == "true" &&
-                        (string?)n.Attribute("enabled") == "true")
-            .ToList();
-        if (candidates.Count != 1 ||
-            !TryGetBoundsCenter((string?)candidates[0].Attribute("bounds"), out var x, out var y))
-            throw new InvalidOperationException($"Expected exactly one clickable Create button, found {candidates.Count}. No tap performed.");
-        Console.Error.WriteLine($"[tiktok] create.open: Create bounds={(string?)candidates[0].Attribute("bounds")}; tap=({x},{y})");
+        var target = FindCreateTapTarget(xml);
+        if (target is null || !TryGetBoundsCenter((string?)target.Attribute("bounds"), out var x, out var y))
+            throw new InvalidOperationException("Create target changed or is ambiguous; no tap performed.");
+        Console.Error.WriteLine($"[tiktok] create.open: target id={(string?)target.Attribute("resource-id")} bounds={(string?)target.Attribute("bounds")}; tap=({x},{y})");
+        var adb = new AdbClient(options.AdbPath);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", x.ToString(), y.ToString());
         await RequireUiAsync("create screen after tap", screen => HasUi(screen, "resource-id", uploadId), cancellationToken);
         Console.Error.WriteLine("[tiktok] create.open: Create screen verified");
+    }
+
+    private static XElement? FindCreateTapTarget(XDocument xml)
+    {
+        var createNodes = xml.Descendants("node")
+            .Where(n => (string?)n.Attribute("content-desc") == "Create" &&
+                        (string?)n.Attribute("enabled") == "true")
+            .ToList();
+        if (createNodes.Count != 1) return null;
+        var node = createNodes[0];
+        var target = node.AncestorsAndSelf().FirstOrDefault(n =>
+            (string?)n.Attribute("clickable") == "true" &&
+            (string?)n.Attribute("enabled") == "true" &&
+            TryGetBoundsCenter((string?)n.Attribute("bounds"), out _, out _));
+        // A non-clickable accessibility icon can still represent a tappable area.
+        // Limit fallback to its own bounds rather than guessing screen coordinates.
+        target ??= TryGetBoundsCenter((string?)node.Attribute("bounds"), out _, out _) ? node : null;
+        return target;
     }
 
     private static bool TryGetBoundsCenter(string? bounds, out int x, out int y)
@@ -131,7 +138,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         x = y = 0;
         if (string.IsNullOrEmpty(bounds)) return false;
         var match = System.Text.RegularExpressions.Regex.Match(bounds,
-            @"^\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]$");
+            @"^\[(\d+),(\d+)\]\[(\d+),(\d+)\]$");
         if (!match.Success ||
             !int.TryParse(match.Groups[1].Value, out var left) ||
             !int.TryParse(match.Groups[2].Value, out var top) ||
