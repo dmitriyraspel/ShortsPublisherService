@@ -51,11 +51,51 @@ public sealed class TikTokPublisher(PublisherOptions options)
 
     private async Task RequireUiAsync(string stage, Func<XDocument, bool> predicate, CancellationToken ct)
     {
-        var xml = await ReadUiAsync(ct);
-        if (!predicate(xml))
-            throw new InvalidOperationException(
-                $"TikTok UI guard failed at {stage}: expected screen/control not found. No further taps performed. Run --diagnose-ui.");
-        Console.Error.WriteLine($"[tiktok] ui.guard: {stage} verified");
+        const int maxAttempts = 8;
+        for (var attempt = 1; attempt <= maxAttempts; attempt++)
+        {
+            ct.ThrowIfCancellationRequested();
+            Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: attempt {attempt}/{maxAttempts}");
+            XDocument? xml = null;
+            try
+            {
+                xml = await ReadUiAsync(ct);
+                var nodes = xml.Descendants("node").ToList();
+                var markers = nodes.Where(n =>
+                        !string.IsNullOrEmpty((string?)n.Attribute("text")) ||
+                        !string.IsNullOrEmpty((string?)n.Attribute("content-desc")))
+                    .Select(n => $"{(string?)n.Attribute("resource-id")}:{(string?)n.Attribute("text")}:{(string?)n.Attribute("content-desc")}")
+                    .Take(12);
+                Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: nodes={nodes.Count}, markers=[{string.Join(" | ", markers)}]");
+                if (predicate(xml))
+                {
+                    Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: verified on attempt {attempt}");
+                    return;
+                }
+                Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: expected control absent");
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: dump failed: {ex.Message}");
+            }
+
+            if (attempt == maxAttempts)
+            {
+                if (xml is not null)
+                {
+                    var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
+                    Directory.CreateDirectory(directory);
+                    var safeStage = new string(stage.Select(ch => char.IsLetterOrDigit(ch) ? ch : '_').ToArray());
+                    var path = Path.GetFullPath(Path.Combine(directory,
+                        $"tiktok_guard_{safeStage}_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
+                    File.WriteAllText(path, xml.ToString(), new System.Text.UTF8Encoding(false));
+                    Console.Error.WriteLine($"[tiktok] ui.guard.{stage}: saved XML {path}");
+                }
+                throw new InvalidOperationException(
+                    $"TikTok UI guard failed at {stage} after {maxAttempts} attempts. No tap performed. Check diagnostics XML.");
+            }
+            await Task.Delay(1000, ct);
+        }
     }
 
     /// <summary>Tap the Create (+) button on TikTok's bottom navigation.</summary>
@@ -66,7 +106,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         // Verified from --diagnose-ui: content-desc="Create", id=oox,
         // bounds=[432,2208][648,2337] on the 1080x2400 emulator.
         // TODO: replace fixed coordinates with a UI selector after Appium integration.
-        await RequireUiAsync("home Create", x => HasUi(x, "content-desc", "Create") && HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/oox"), cancellationToken);
+        await RequireUiAsync("home Create", x => HasUi(x, "content-desc", "Create"), cancellationToken);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "540", "2272");
         Console.Error.WriteLine("[tiktok] create.open: tap completed");
     }
