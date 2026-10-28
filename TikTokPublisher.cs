@@ -417,5 +417,22 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await Task.Delay(1200, cancellationToken);
         await FillCaptionAsync(caption, cancellationToken);
         await PressPostAndConfirmAsync(caption, cancellationToken);
+
+        // Match Instagram: remove only the uploaded Android copy after confirmation.
+        // Cleanup failures must not turn a confirmed post into a retryable failure.
+        try
+        {
+            if (!remoteName.StartsWith("tt_" + hash[..16] + "_", StringComparison.Ordinal) ||
+                !remotePath.StartsWith(directory + "/", StringComparison.Ordinal))
+                throw new InvalidOperationException("Unsafe Android media cleanup path.");
+            Console.Error.WriteLine("[tiktok] cleanup.media: removing uploaded Android copy");
+            await adb.ShellAsync(options.DeviceId, CancellationToken.None, "rm", "--", remotePath);
+            await adb.ShellAsync(options.DeviceId, CancellationToken.None, "am", "broadcast",
+                "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[tiktok] cleanup.media warning: {ex.Message}");
+        }
     }
 }
