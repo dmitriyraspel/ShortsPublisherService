@@ -57,6 +57,17 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] gallery.open: tap completed");
     }
 
+    /// <summary>Select the Videos filter in the media picker; do not select a tile.</summary>
+    public async Task SelectVideosTabAsync(CancellationToken cancellationToken = default)
+    {
+        Console.Error.WriteLine("[tiktok] gallery.filter: selecting Videos tab");
+        var adb = new AdbClient(options.AdbPath);
+        // UI XML: content-desc="Videos", bounds=[344,258][689,376].
+        // Coordinates apply to the diagnosed 1080x2400 emulator only.
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "516", "317");
+        Console.Error.WriteLine("[tiktok] gallery.filter: tap completed; inspect --diagnose-ui");
+    }
+
     /// <summary>
     /// Safe placeholder. Does not press Upload, Next, Post, or Share.
     /// Future stages will be implemented after UI XML inspection.
@@ -103,7 +114,9 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await OpenCreateAsync(cancellationToken);
         await Task.Delay(1500, cancellationToken);
         await OpenGalleryAsync(cancellationToken);
-        Console.Error.WriteLine("[tiktok] gallery.ready: select Videos tab and inspect --diagnose-ui");
+        await Task.Delay(700, cancellationToken);
+        await SelectVideosTabAsync(cancellationToken);
+        Console.Error.WriteLine("[tiktok] gallery.ready: Videos tab requested; inspect --diagnose-ui");
         Console.Error.WriteLine("[tiktok] gallery.selection: skipped; XML exposes durations and thumbnails but no file identity");
         Console.Error.WriteLine("[tiktok] publication.pending: no video selected, Next/Post not pressed; nothing published");
     }
