@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Security.Cryptography;
 using System.Threading.Tasks;
 
 namespace ShortsPublisher;
@@ -75,8 +76,35 @@ public sealed class TikTokPublisher(PublisherOptions options)
         if (string.IsNullOrWhiteSpace(caption))
             throw new ArgumentException("TikTok caption must not be empty.", nameof(caption));
 
+        // Transfer an exact, content-addressed copy; never select a gallery tile by
+        // position or duration alone (different videos may share the same duration).
+        var adb = new AdbClient(options.AdbPath);
+        string hash;
+        await using (var stream = File.OpenRead(localPath))
+            hash = Convert.ToHexString(await SHA256.HashDataAsync(stream, cancellationToken)).ToLowerInvariant();
+        var safeName = Path.GetFileName(localPath);
+        var remoteName = $"tt_{hash[..16]}_{safeName}";
+        var directory = options.AndroidMediaDirectory.TrimEnd('/');
+        var remotePath = $"{directory}/{remoteName}";
+        Console.Error.WriteLine($"[tiktok] media.push: {remoteName}");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "mkdir", "-p", directory);
+        await adb.PushAsync(options.DeviceId, localPath, remotePath, cancellationToken);
+        var remoteHashOutput = await adb.ShellAsync(options.DeviceId, cancellationToken, "sha256sum", remotePath);
+        var remoteHash = remoteHashOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (!string.Equals(hash, remoteHash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException($"TikTok media SHA-256 mismatch: expected {hash}, got {remoteHash ?? "<empty>"}.");
+        Console.Error.WriteLine("[tiktok] media.verify: SHA-256 matches");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "am", "broadcast",
+            "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
+        Console.Error.WriteLine("[tiktok] media.scan: requested");
+
         await OpenTikTokAsync(cancellationToken);
-        Console.Error.WriteLine("[tiktok] publication.pending: UI flow not implemented; nothing published");
-        // No publish action until the TikTok UI and confirmation signal are verified.
+        await Task.Delay(1500, cancellationToken);
+        await OpenCreateAsync(cancellationToken);
+        await Task.Delay(1500, cancellationToken);
+        await OpenGalleryAsync(cancellationToken);
+        Console.Error.WriteLine("[tiktok] gallery.ready: select Videos tab and inspect --diagnose-ui");
+        Console.Error.WriteLine("[tiktok] gallery.selection: skipped; XML exposes durations and thumbnails but no file identity");
+        Console.Error.WriteLine("[tiktok] publication.pending: no video selected, Next/Post not pressed; nothing published");
     }
 }
