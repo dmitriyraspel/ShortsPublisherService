@@ -120,6 +120,21 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] gallery.next: tap completed; publication not attempted");
     }
 
+    /// <summary>Advance from the video editing screen to the posting details screen; never publish.</summary>
+    public async Task PressEditorNextAsync(CancellationToken cancellationToken = default)
+    {
+        Console.Error.WriteLine("[tiktok] editor.next: checking editing screen");
+        await RequireUiAsync("editor Next", x =>
+            HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/video_record_gesture_layout") &&
+            HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/q25") &&
+            HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/q27") &&
+            HasUi(x, "text", "Next"), cancellationToken);
+        var adb = new AdbClient(options.AdbPath);
+        // Editor Next clickable container: bounds=[550,2192][1048,2308].
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "799", "2250");
+        Console.Error.WriteLine("[tiktok] editor.next: tap completed; Post not pressed");
+    }
+
     /// <summary>
     /// Prepares video and advances through gallery; never presses Post or Share.
     /// Future stages will be implemented after UI XML inspection.
@@ -173,6 +188,8 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await SelectFirstGalleryVideoAsync(cancellationToken);
         await Task.Delay(1200, cancellationToken);
         await PressNextAsync(cancellationToken);
-        Console.Error.WriteLine("[tiktok] publication.pending: Next requested; Post not pressed; nothing published");
+        await Task.Delay(1500, cancellationToken);
+        await PressEditorNextAsync(cancellationToken);
+        Console.Error.WriteLine("[tiktok] publication.pending: editor Next requested; Post not pressed; nothing published");
     }
 }
