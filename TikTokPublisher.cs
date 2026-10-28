@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.Security.Cryptography;
 using System.Threading.Tasks;
+using System.Xml.Linq;
 
 namespace ShortsPublisher;
 
@@ -34,6 +35,29 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] app.open: launch command completed");
     }
 
+    private async Task<XDocument> ReadUiAsync(CancellationToken ct)
+    {
+        var adb = new AdbClient(options.AdbPath);
+        const string dumpPath = "/sdcard/window_tiktok_guard.xml";
+        await adb.ShellAsync(options.DeviceId, ct, "uiautomator", "dump", dumpPath);
+        var xml = await adb.ShellAsync(options.DeviceId, ct, "cat", dumpPath);
+        var start = xml.IndexOf("<?xml", StringComparison.Ordinal);
+        if (start < 0) throw new InvalidOperationException("TikTok UI dump contains no XML.");
+        return XDocument.Parse(xml[start..]);
+    }
+
+    private static bool HasUi(XDocument xml, string attribute, string value) =>
+        xml.Descendants("node").Any(n => string.Equals((string?)n.Attribute(attribute), value, StringComparison.Ordinal));
+
+    private async Task RequireUiAsync(string stage, Func<XDocument, bool> predicate, CancellationToken ct)
+    {
+        var xml = await ReadUiAsync(ct);
+        if (!predicate(xml))
+            throw new InvalidOperationException(
+                $"TikTok UI guard failed at {stage}: expected screen/control not found. No further taps performed. Run --diagnose-ui.");
+        Console.Error.WriteLine($"[tiktok] ui.guard: {stage} verified");
+    }
+
     /// <summary>Tap the Create (+) button on TikTok's bottom navigation.</summary>
     public async Task OpenCreateAsync(CancellationToken cancellationToken = default)
     {
@@ -42,6 +66,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         // Verified from --diagnose-ui: content-desc="Create", id=oox,
         // bounds=[432,2208][648,2337] on the 1080x2400 emulator.
         // TODO: replace fixed coordinates with a UI selector after Appium integration.
+        await RequireUiAsync("home Create", x => HasUi(x, "content-desc", "Create") && HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/oox"), cancellationToken);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "540", "2272");
         Console.Error.WriteLine("[tiktok] create.open: tap completed");
     }
@@ -53,6 +78,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         var adb = new AdbClient(options.AdbPath);
         // Diagnosed UI: com.zhiliaoapp.musically:id/upload_hot_area,
         // bounds=[0,2135][179,2314] on the 1080x2400 emulator.
+        await RequireUiAsync("create Upload", x => HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/upload_hot_area"), cancellationToken);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "90", "2225");
         Console.Error.WriteLine("[tiktok] gallery.open: tap completed");
     }
@@ -64,6 +90,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         var adb = new AdbClient(options.AdbPath);
         // UI XML: content-desc="Videos", bounds=[344,258][689,376].
         // Coordinates apply to the diagnosed 1080x2400 emulator only.
+        await RequireUiAsync("gallery Videos tab", x => HasUi(x, "content-desc", "Videos"), cancellationToken);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "516", "317");
         Console.Error.WriteLine("[tiktok] gallery.filter: tap completed; inspect --diagnose-ui");
     }
@@ -77,6 +104,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] gallery.select: tapping first video thumbnail (position-based)");
         var adb = new AdbClient(options.AdbPath);
         // Diagnosed first tile bounds=[5,381][359,738]. Avoid its top-right checkbox.
+        await RequireUiAsync("Videos gallery selected", x => x.Descendants("node").Any(n => (string?)n.Attribute("content-desc") == "Videos" && (string?)n.Attribute("selected") == "true") && HasUi(x, "text", "Next"), cancellationToken);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "150", "560");
         Console.Error.WriteLine("[tiktok] gallery.select: tap completed");
     }
@@ -87,12 +115,13 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] gallery.next: tapping Next");
         var adb = new AdbClient(options.AdbPath);
         // Diagnosed Next button id=y3s, bounds=[550,2179][1048,2295].
+        await RequireUiAsync("gallery Next", x => x.Descendants("node").Any(n => (string?)n.Attribute("content-desc") == "Videos" && (string?)n.Attribute("selected") == "true") && HasUi(x, "text", "Next") && !x.Descendants("node").Any(n => (string?)n.Attribute("content-desc") == "Inbox" && (string?)n.Attribute("selected") == "true"), cancellationToken);
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "800", "2237");
         Console.Error.WriteLine("[tiktok] gallery.next: tap completed; publication not attempted");
     }
 
     /// <summary>
-    /// Safe placeholder. Does not press Upload, Next, Post, or Share.
+    /// Prepares video and advances through gallery; never presses Post or Share.
     /// Future stages will be implemented after UI XML inspection.
     /// </summary>
     public async Task PreparePublicationAsync(
@@ -110,8 +139,8 @@ public sealed class TikTokPublisher(PublisherOptions options)
         if (string.IsNullOrWhiteSpace(caption))
             throw new ArgumentException("TikTok caption must not be empty.", nameof(caption));
 
-        // Transfer an exact, content-addressed copy; never select a gallery tile by
-        // position or duration alone (different videos may share the same duration).
+        // Transfer an exact, content-addressed copy. Gallery selection below is
+        // position-based and does not independently prove media identity.
         var adb = new AdbClient(options.AdbPath);
         string hash;
         await using (var stream = File.OpenRead(localPath))
