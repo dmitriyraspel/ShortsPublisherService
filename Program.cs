@@ -19,6 +19,8 @@ bool instagramCreate = false;
 bool instagramSelectReel = false;
 bool instagramOpenVideo = false;
 bool publishVideoInstagram = false;
+bool openTikTok = false;
+bool publishVideoTikTok = false;
 
 
 
@@ -58,6 +60,12 @@ for (var i = 0; i < args.Length; i++)
         case "--instagram-open-video":
             instagramOpenVideo = true;
             break;
+        case "--open-tiktok":
+            openTikTok = true;
+            break;
+        case "--publish-video-tiktok":
+            publishVideoTikTok = true;
+            break;
         case "--diagnose-ui":
             diagnoseUi = true;
             break;
@@ -74,7 +82,8 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!openInstagram &&
+if (!openTikTok &&
+    !openInstagram &&
     !instagramHome &&
     !instagramCreate &&
     !instagramSelectReel &&
@@ -103,6 +112,26 @@ try
 
     var options = configuration.GetSection("Publisher")
         .Get<PublisherOptions>() ?? new PublisherOptions();
+
+    if (openTikTok)
+    {
+        await new TikTokPublisher(options).OpenTikTokAsync();
+        return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
+            null, "TikTok launch command completed; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (publishVideoTikTok)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-tiktok requires --file.", startedAt), resultFile, ExitBadArguments);
+        if (string.IsNullOrWhiteSpace(caption))
+            return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-tiktok requires --caption.", startedAt, filePath), resultFile, ExitBadArguments);
+        await new TikTokPublisher(options).PreparePublicationAsync(filePath, caption);
+        return await EmitAsync(new JobResult(taskId, "tiktok_not_implemented", false, false,
+            filePath, "TikTok opened, but publication flow is not implemented. No Post action was performed.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitFailure);
+    }
 
     if (publishVideoInstagram)
     {
@@ -372,6 +401,8 @@ static void PrintUsage()
     Usage:
       ShortsPublisher.exe --file "C:\Videos\clip.mp4" --caption "Caption"
       ShortsPublisher.exe --diagnose-ui
+      ShortsPublisher.exe --open-tiktok
+      ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --caption "Caption" --publish-video-tiktok
       ShortsPublisher.exe --open-instagram
       ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --instagram-open-video
 
@@ -381,6 +412,8 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
+      --open-tiktok       Open TikTok without publishing.
+      --publish-video-tiktok  TikTok publishing skeleton; opens app but does NOT publish.
       --open-instagram     Open Instagram without publishing.
       --instagram-open-video  Verify and share a specific video to Instagram (no publication).
       --publish-video-instagram  Select Reel, enter --caption, click caption-screen Next; DOES NOT publish.
