@@ -21,6 +21,7 @@ bool instagramOpenVideo = false;
 bool publishVideoInstagram = false;
 bool openTikTok = false;
 bool tiktokCreate = false;
+bool tiktokGallery = false;
 bool publishVideoTikTok = false;
 
 
@@ -61,6 +62,9 @@ for (var i = 0; i < args.Length; i++)
         case "--instagram-open-video":
             instagramOpenVideo = true;
             break;
+        case "--tiktok-gallery":
+            tiktokGallery = true;
+            break;
         case "--tiktok-create":
             tiktokCreate = true;
             break;
@@ -86,7 +90,8 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!tiktokCreate &&
+if (!tiktokGallery &&
+    !tiktokCreate &&
     !openTikTok &&
     !openInstagram &&
     !instagramHome &&
@@ -117,6 +122,14 @@ try
 
     var options = configuration.GetSection("Publisher")
         .Get<PublisherOptions>() ?? new PublisherOptions();
+
+    if (tiktokGallery)
+    {
+        await new TikTokPublisher(options).OpenGalleryAsync();
+        return await EmitAsync(new JobResult(taskId, "tiktok_gallery_opened", true, false,
+            null, "Tapped TikTok Upload gallery button; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
 
     if (tiktokCreate)
     {
@@ -414,6 +427,7 @@ static void PrintUsage()
     Usage:
       ShortsPublisher.exe --file "C:\Videos\clip.mp4" --caption "Caption"
       ShortsPublisher.exe --diagnose-ui
+      ShortsPublisher.exe --tiktok-gallery
       ShortsPublisher.exe --tiktok-create
       ShortsPublisher.exe --open-tiktok
       ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --caption "Caption" --publish-video-tiktok
@@ -426,6 +440,7 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
+      --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
       --publish-video-tiktok  TikTok publishing skeleton; opens app but does NOT publish.
