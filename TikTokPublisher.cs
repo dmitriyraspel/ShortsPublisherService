@@ -296,8 +296,8 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] caption.ready: text verified, suggestions dismissed, keyboard back requested; Post not pressed");
     }
 
-    /// <summary>Press Post once and retain only the XML that confirms publication.</summary>
-    public async Task<string> PressPostAndConfirmAsync(string caption, CancellationToken cancellationToken = default)
+    /// <summary>Press Post once and confirm publication without saving XML.</summary>
+    public async Task PressPostAndConfirmAsync(string caption, CancellationToken cancellationToken = default)
     {
         const string postId = "com.zhiliaoapp.musically:id/tl7";
         const string captionId = "com.zhiliaoapp.musically:id/h_n";
@@ -330,14 +330,12 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine($"[tiktok] post.tap: pressing Post ONCE at ({x},{y})");
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", x.ToString(), y.ToString());
 
-        XDocument? lastXml = null;
         for (var i = 1; i <= 15; i++)
         {
             await Task.Delay(TimeSpan.FromSeconds(2), cancellationToken);
             try
             {
                 var xml = await ReadUiAsync(cancellationToken);
-                lastXml = xml;
                 bool captionMatches = xml.Descendants("node").Any(n =>
                     (string?)n.Attribute("resource-id") == descId &&
                     ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim());
@@ -349,13 +347,8 @@ public sealed class TikTokPublisher(PublisherOptions options)
                     (string?)n.Attribute("content-desc") == "Video");
                 if (captionMatches && recentPost && videoScreen)
                 {
-                    var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
-                    Directory.CreateDirectory(directory);
-                    var file = Path.GetFullPath(Path.Combine(directory,
-                        $"tiktok_published_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
-                    File.WriteAllText(file, xml.ToString(), new System.Text.UTF8Encoding(false));
-                    Console.Error.WriteLine($"[tiktok] publication.confirmed: {file}");
-                    return file;
+                    Console.Error.WriteLine("[tiktok] publication.confirmed");
+                    return;
                 }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
@@ -363,14 +356,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
                 Console.Error.WriteLine($"[tiktok] post.confirm: attempt {i}/15: {ex.Message}");
             }
         }
-        var failureDirectory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
-        Directory.CreateDirectory(failureDirectory);
-        var failureFile = Path.GetFullPath(Path.Combine(failureDirectory,
-            $"tiktok_post_unconfirmed_{DateTime.Now:yyyyMMdd_HHmmss_fff}.xml"));
-        if (lastXml is not null)
-            File.WriteAllText(failureFile, lastXml.ToString(), new System.Text.UTF8Encoding(false));
-        throw new InvalidOperationException(
-            $"Post was tapped once but publication was not confirmed. Do NOT retry automatically (duplicate risk). Last UI XML: {(lastXml is null ? "<unavailable>" : failureFile)}");
+        throw new InvalidOperationException("Post tapped once but confirmation absent; do not retry automatically.");
     }
 
     /// <summary>
@@ -430,7 +416,6 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await PressEditorNextAsync(cancellationToken);
         await Task.Delay(1200, cancellationToken);
         await FillCaptionAsync(caption, cancellationToken);
-        var evidence = await PressPostAndConfirmAsync(caption, cancellationToken);
-        Console.Error.WriteLine($"[tiktok] publication.confirmed: {evidence}");
+        await PressPostAndConfirmAsync(caption, cancellationToken);
     }
 }
