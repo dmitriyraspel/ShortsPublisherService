@@ -1,5 +1,6 @@
 using System;
 using System.Diagnostics;
+using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -107,26 +108,45 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
     {
         // The only success signal is Instagram's own "Done posting" status.
         // Never click Share again after the first attempt.
+        // Resolve Share before disabling idle wait; Instagram's upload UI continuously changes.
+        var shareButton = WaitForElement("com.instagram.android:id/share_button", "Share");
+        Console.Error.WriteLine("[instagram] publication.monitor.settings: disabling UiAutomator2 idle wait");
+        _driver!.UpdateSettings(new Dictionary<string, object> { ["waitForIdleTimeout"] = 0L });
+        _driver.Manage().Timeouts().ImplicitWait = TimeSpan.Zero;
         Console.Error.WriteLine("[instagram] publication.share: clicking Share");
-        ClickWhenReady("com.instagram.android:id/share_button", "Share");
+        shareButton.Click(); // Never retry Share, even after a WebDriver timeout.
         Console.Error.WriteLine("[instagram] publication.monitor: waiting for Done posting (200s)");
         var directory = Path.Combine(Directory.GetCurrentDirectory(), "diagnostics");
         Directory.CreateDirectory(directory);
         var deadline = Stopwatch.StartNew();
         const int timeoutSeconds = 200;
         var attempt = 0;
+        string? previousStatus = null;
+        try
+        {
         while (deadline.Elapsed < TimeSpan.FromSeconds(timeoutSeconds))
         {
             attempt++;
             var timer = Stopwatch.StartNew();
+            long findMs = -1, textMs = 0;
+            int elementCount = 0;
             try
             {
-                // Query one UI element rather than fetching the full, expensive hierarchy.
                 var statuses = _driver!.FindElements(OpenQA.Selenium.By.Id(
                     "com.instagram.android:id/status_text"));
+                findMs = timer.ElapsedMilliseconds;
+                elementCount = statuses.Count;
                 foreach (var status in statuses)
                 {
-                    var value = status.Text;
+                    var textTimer = Stopwatch.StartNew();
+                    string value;
+                    try { value = status.Text; }
+                    finally { textMs += textTimer.ElapsedMilliseconds; }
+                    if (!string.Equals(value, previousStatus, StringComparison.Ordinal))
+                    {
+                        Console.Error.WriteLine($"[instagram] publication.status: {value}");
+                        previousStatus = value;
+                    }
                     if (!value.Contains("Done posting", StringComparison.OrdinalIgnoreCase))
                         continue;
 
@@ -141,7 +161,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
             finally
             {
                 timer.Stop();
-                Console.Error.WriteLine($"Instagram status poll #{attempt}: {timer.ElapsedMilliseconds} ms; elapsed {deadline.Elapsed.TotalSeconds:F1}s.");
+                Console.Error.WriteLine($"[instagram] publication.poll #{attempt}: find={findMs}ms, text={textMs}ms, elements={elementCount}, total={timer.ElapsedMilliseconds}ms; elapsed={deadline.Elapsed.TotalSeconds:F1}s.");
             }
             var remaining = TimeSpan.FromSeconds(timeoutSeconds) - deadline.Elapsed;
             if (remaining > TimeSpan.Zero)
@@ -162,6 +182,20 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
             Console.Error.WriteLine($"Instagram timeout diagnostic capture failed: {ex.Message}");
         }
         return (false, lastPath, null);
+        }
+        finally
+        {
+            // Restore default UiAutomator2 idle wait without losing a confirmed result.
+            try
+            {
+                _driver!.UpdateSettings(new Dictionary<string, object> { ["waitForIdleTimeout"] = 10000L });
+                Console.Error.WriteLine("[instagram] publication.monitor.settings: idle wait restored");
+            }
+            catch (Exception ex)
+            {
+                Console.Error.WriteLine($"[instagram] publication.monitor.settings warning: {ex.Message}");
+            }
+        }
     }
 
     /// <summary>Return to Instagram Home and terminate the app after confirmed publication.</summary>
