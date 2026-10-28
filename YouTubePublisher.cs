@@ -99,7 +99,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver!.PageSource;
     }
 
-    public string TestSelectGalleryVideo(string fileName)
+    public string SelectGalleryVideo(string fileName)
     {
         Connect();
 
@@ -115,7 +115,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestNextFromGallery()
+    public string NextFromGallery()
     {
         Connect();
 
@@ -134,7 +134,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestDoneFromEditor()
+    public string DoneFromEditor()
     {
         Connect();
 
@@ -153,7 +153,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestNextFromShortsEditor()
+    public string NextFromShortsEditor()
     {
         Connect();
 
@@ -172,7 +172,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestOpenFirstSettingsRow()
+    public string OpenFirstSettingsRow()
     {
         Connect();
 
@@ -194,7 +194,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestSelectPublicVisibility()
+    public string SelectPublicVisibility()
     {
         Connect();
 
@@ -213,7 +213,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestBackFromVisibility()
+    public string BackFromVisibility()
     {
         Connect();
 
@@ -226,7 +226,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestBackFromAudience()
+    public string BackFromAudience()
     {
         Connect();
 
@@ -239,7 +239,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestSetCaption(string caption)
+    public string SetCaption(string caption)
     {
         Connect();
 
@@ -265,7 +265,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestOpenSelectAudience()
+    public string OpenSelectAudience()
     {
         Connect();
 
@@ -288,7 +288,7 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         return _driver.PageSource;
     }
 
-    public string TestSelectNotMadeForKids()
+    public string SelectNotMadeForKids()
     {
         Connect();
 
@@ -319,18 +319,24 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
         if (string.IsNullOrWhiteSpace(caption))
             throw new ArgumentException("Caption is required.", nameof(caption));
 
+        Console.Error.WriteLine("[youtube] app.open: connecting and opening YouTube");
         Connect();
         EnsureYouTubeForeground();
         Thread.Sleep(800);
+        Console.Error.WriteLine("[youtube] app.open: ready");
 
         // 1. Open the Create menu.
         var createButton = _driver!.FindElement(
             By.XPath("//*[@content-desc='Create' and @clickable='true']"));
+        Console.Error.WriteLine("[youtube] create.open: tapping Create");
         createButton.Click();
         Thread.Sleep(1000);
+        Console.Error.WriteLine("[youtube] create.open: completed");
 
         // 2. Explicitly select Short mode.
+        Console.Error.WriteLine("[youtube] shorts.select: selecting Short mode");
         EnsureShortCreationMode();
+        Console.Error.WriteLine("[youtube] shorts.select: ready");
 
         // 3. Open the gallery only after the Shorts screen is verified.
         var galleryButton = _driver!.FindElements(
@@ -353,33 +359,48 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
                 $"content-desc='{galleryButtonDescription}'.");
         }
 
+        Console.Error.WriteLine("[youtube] gallery.open: opening video gallery");
         galleryButton.Click();
         Thread.Sleep(1200);
-        TestSelectGalleryVideo(fileName);
-        TestNextFromGallery();
-        TestDoneFromEditor();
-        TestNextFromShortsEditor();
+        Console.Error.WriteLine("[youtube] gallery.select: selecting video by filename");
+        SelectGalleryVideo(fileName);
+        Console.Error.WriteLine("[youtube] gallery.select: completed");
+        Console.Error.WriteLine("[youtube] gallery.next: tapping Next");
+        NextFromGallery();
+        Console.Error.WriteLine("[youtube] editor.done: tapping Done");
+        DoneFromEditor();
+        Console.Error.WriteLine("[youtube] editor.next: tapping Next");
+        NextFromShortsEditor();
 
         // 4. Set and verify the exact caption.
-        var captionScreen = TestSetCaption(caption);
+        Console.Error.WriteLine("[youtube] caption.fill: entering caption");
+        var captionScreen = SetCaption(caption);
         if (!captionScreen.Contains(caption, StringComparison.Ordinal))
             throw new InvalidOperationException("Caption verification failed.");
+        Console.Error.WriteLine("[youtube] caption.verify: caption matches");
 
         // 5. Set visibility and audience.
-        TestOpenFirstSettingsRow();
-        TestSelectPublicVisibility();
-        TestBackFromVisibility();
-        TestOpenSelectAudience();
-        TestSelectNotMadeForKids();
-        TestBackFromAudience();
+        Console.Error.WriteLine("[youtube] visibility.open: opening visibility settings");
+        OpenFirstSettingsRow();
+        Console.Error.WriteLine("[youtube] visibility.select: selecting Public");
+        SelectPublicVisibility();
+        BackFromVisibility();
+        Console.Error.WriteLine("[youtube] visibility.select: completed");
+        Console.Error.WriteLine("[youtube] audience.open: opening audience settings");
+        OpenSelectAudience();
+        Console.Error.WriteLine("[youtube] audience.select: selecting Not made for kids");
+        SelectNotMadeForKids();
+        BackFromAudience();
+        Console.Error.WriteLine("[youtube] audience.select: completed");
 
         // 6. Click Upload once, then observe the UI across screen transitions.
         // XML/PageSource is read in memory only and never written to disk.
-        return ClickUploadAndObserve(caption, TimeSpan.FromMinutes(10));
+        return ClickUploadAndObserve(caption, TimeSpan.FromSeconds(200));
     }
 
     private UploadObservationResult ClickUploadAndObserve(string? expectedCaption, TimeSpan timeout)
     {
+        Console.Error.WriteLine("[youtube] upload.ready: checking Upload button");
         var uploadButton = _driver!.FindElement(
             By.Id("com.google.android.youtube:id/upload_bottom_button"));
 
@@ -387,14 +408,15 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
             throw new InvalidOperationException(
                 "Upload Short button is not visible or enabled. Nothing was clicked.");
 
+        Console.Error.WriteLine("[youtube] upload.tap: pressing Upload ONCE");
         uploadButton.Click();
-
+        Console.Error.WriteLine("[youtube] upload.monitor: waiting for publication confirmation");
         return ObserveUploadStatus(expectedCaption, timeout);
     }
 
     private UploadObservationResult ObserveUploadStatus(string? expectedCaption, TimeSpan timeout)
     {
-        const int intervalSeconds = 8;
+        const int intervalSeconds = 2;
         var timer = Stopwatch.StartNew();
         var screenReads = 0;
         var matchingCardCount = 0;
@@ -420,15 +442,19 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
 
             var observation = AnalyzeUploadScreen(pageSource, expectedCaption);
             matchingCardCount = observation.MatchingCardCount;
+            var state = observation.ExplicitPublicationConfirmation ? "confirmed" :
+                observation.FailureDetected ? "upload_failed" :
+                observation.UploadIndicatorVisible ? "uploading" : "pending";
+            Console.Error.WriteLine($"[youtube] upload.monitor: elapsed={timer.Elapsed.TotalSeconds:F0}s, status={state}");
 
             // Confirm only from the explicit UI signals seen in the supplied XML.
             // Caption/card uniqueness is deliberately NOT required: different Shorts
             // may have identical captions, and the confirmation toast/status is stronger.
             if (observation.ExplicitPublicationConfirmation)
             {
-                var message = "YouTube подтвердил публикацию: 'Uploaded to Your Channel', " +
-                    "'Share video' и 'You: Video uploaded'. Это подтверждает состояние UI; " +
-                    "публичную доступность с другого аккаунта отдельно не проверяет.";
+                var message = "YouTube confirmed publication: 'Uploaded to Your Channel', " +
+                    "'Share video' and 'You: Video uploaded'. This confirms the UI state; " +
+                    "public availability from another account was not verified.";
                 return ReportUploadResult(new UploadObservationResult(
                     "published", true, message, screenReads, matchingCardCount, timer.Elapsed));
             }
@@ -461,8 +487,8 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
                 : TimeSpan.FromSeconds(intervalSeconds));
         }
 
-        var finalMessage = $"Не удалось получить явное подтверждение публикации за {timeout.TotalMinutes:F0} мин. " +
-            $"Последнее состояние: {lastObservation}";
+        var finalMessage = $"No explicit publication confirmation within {timeout.TotalSeconds:F0} seconds. " +
+            $"Last observed state: {lastObservation}";
         return ReportUploadResult(new UploadObservationResult(
             "publication_unconfirmed", false, finalMessage,
             screenReads, matchingCardCount, timer.Elapsed));
@@ -472,11 +498,11 @@ public sealed class YouTubePublisher(PublisherOptions options) : IDisposable
     {
         if (result.Published)
         {
-            Console.Error.WriteLine("[ПУБЛИКАЦИЯ ПОДТВЕРЖДЕНА] " + result.Message);
+            Console.Error.WriteLine("[youtube] publication.confirmed: " + result.Message);
         }
         else
         {
-            Console.Error.WriteLine($"[ПУБЛИКАЦИЯ НЕ ПОДТВЕРЖДЕНА: {result.Status}] " + result.Message);
+            Console.Error.WriteLine($"[youtube] publication.unverified: status={result.Status}; {result.Message}; do not retry automatically");
         }
 
         return result;
