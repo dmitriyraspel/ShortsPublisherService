@@ -261,6 +261,7 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
             "Unsupported file extension. Supported: .mp4, .mov, .m4v.");
     }
 
+    Console.Error.WriteLine("[youtube] input.validate: checking source video");
     var info = new FileInfo(filePath);
     if (info.Length == 0)
         throw new InvalidOperationException("Input video file is empty.");
@@ -292,6 +293,7 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
     if (effectiveCaption.Length > 100)
         effectiveCaption = effectiveCaption[..100];
 
+    Console.Error.WriteLine("[youtube] media.hash: calculating SHA-256");
     await using var stream = File.OpenRead(filePath);
     var sha256 = Convert.ToHexString(
         await SHA256.HashDataAsync(stream)).ToLowerInvariant();
@@ -309,8 +311,9 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
             $"Android device '{options.DeviceId}' is not ready.");
     }
 
-    var remotePath =
-        $"{options.AndroidMediaDirectory.TrimEnd('/')}/{Path.GetFileName(filePath)}";
+    var remoteDirectory = options.AndroidMediaDirectory.TrimEnd('/');
+    var remoteName = $"yt_{sha256[..16]}_{Path.GetFileName(filePath)}";
+    var remotePath = $"{remoteDirectory}/{remoteName}";
 
     await adb.ShellAsync(
         options.DeviceId,
@@ -318,11 +321,19 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
         "mkdir", "-p",
         options.AndroidMediaDirectory);
 
+    Console.Error.WriteLine("[youtube] media.push: uploading video to Android");
     await adb.PushAsync(
         options.DeviceId,
         filePath,
         remotePath,
         cancellation.Token);
+
+    Console.Error.WriteLine("[youtube] media.verify: checking Android SHA-256");
+    var remoteHashOutput = await adb.ShellAsync(options.DeviceId, cancellation.Token, "sha256sum", remotePath);
+    var remoteHash = remoteHashOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+    if (!string.Equals(sha256, remoteHash, StringComparison.OrdinalIgnoreCase))
+        throw new InvalidOperationException($"YouTube Android SHA-256 mismatch: expected {sha256}, got {remoteHash ?? "<empty>"}.");
+    Console.Error.WriteLine("[youtube] media.verify: SHA-256 matches");
 
     await adb.ShellAsync(
         options.DeviceId,
@@ -331,11 +342,36 @@ if (openInstagram || instagramHome || instagramCreate || instagramSelectReel)
         "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
         "-d", $"file://{remotePath}");
 
+    Console.Error.WriteLine("[youtube] media.scan: requested");
     using var automationForUpload = new YouTubePublisher(options);
 
     var observation = automationForUpload.PublishVideoOnYouTubeAsync(
-        Path.GetFileName(filePath),
+        remoteName,
         effectiveCaption);
+
+    if (observation.Published)
+    {
+        // A confirmed publication must not be reported as failed if cleanup fails.
+        try
+        {
+            if (!remoteName.StartsWith($"yt_{sha256[..16]}_", StringComparison.Ordinal) ||
+                !remotePath.StartsWith(remoteDirectory + "/", StringComparison.Ordinal))
+                throw new InvalidOperationException("Unsafe YouTube Android media cleanup path.");
+            Console.Error.WriteLine("[youtube] cleanup.media: removing uploaded Android copy");
+            await adb.ShellAsync(options.DeviceId, CancellationToken.None, "rm", "--", remotePath);
+            await adb.ShellAsync(options.DeviceId, CancellationToken.None, "am", "broadcast",
+                "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}");
+            Console.Error.WriteLine("[youtube] cleanup.media: completed");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[youtube] cleanup.media warning: {ex.Message}");
+        }
+    }
+    else
+    {
+        Console.Error.WriteLine($"[youtube] publication.unverified: status={observation.Status}; do not retry automatically without checking YouTube");
+    }
 
     var result = new JobResult(
         taskId,
