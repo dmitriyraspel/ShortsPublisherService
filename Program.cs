@@ -20,6 +20,7 @@ bool instagramSelectReel = false;
 bool instagramOpenVideo = false;
 bool publishVideoInstagram = false;
 bool openTikTok = false;
+bool tiktokCreate = false;
 bool publishVideoTikTok = false;
 
 
@@ -60,6 +61,9 @@ for (var i = 0; i < args.Length; i++)
         case "--instagram-open-video":
             instagramOpenVideo = true;
             break;
+        case "--tiktok-create":
+            tiktokCreate = true;
+            break;
         case "--open-tiktok":
             openTikTok = true;
             break;
@@ -82,7 +86,8 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!openTikTok &&
+if (!tiktokCreate &&
+    !openTikTok &&
     !openInstagram &&
     !instagramHome &&
     !instagramCreate &&
@@ -112,6 +117,14 @@ try
 
     var options = configuration.GetSection("Publisher")
         .Get<PublisherOptions>() ?? new PublisherOptions();
+
+    if (tiktokCreate)
+    {
+        await new TikTokPublisher(options).OpenCreateAsync();
+        return await EmitAsync(new JobResult(taskId, "tiktok_create_opened", true, false,
+            null, "Tapped TikTok Create (+) button; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
 
     if (openTikTok)
     {
@@ -401,6 +414,7 @@ static void PrintUsage()
     Usage:
       ShortsPublisher.exe --file "C:\Videos\clip.mp4" --caption "Caption"
       ShortsPublisher.exe --diagnose-ui
+      ShortsPublisher.exe --tiktok-create
       ShortsPublisher.exe --open-tiktok
       ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --caption "Caption" --publish-video-tiktok
       ShortsPublisher.exe --open-instagram
@@ -412,6 +426,7 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
+      --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
       --publish-video-tiktok  TikTok publishing skeleton; opens app but does NOT publish.
       --open-instagram     Open Instagram without publishing.
