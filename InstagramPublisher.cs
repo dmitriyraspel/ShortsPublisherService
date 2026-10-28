@@ -1,6 +1,5 @@
 using System;
 using System.Diagnostics;
-using System.Collections.Generic;
 using System.IO;
 using System.Linq;
 using System.Threading;
@@ -111,7 +110,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         // Resolve Share before disabling idle wait; Instagram's upload UI continuously changes.
         var shareButton = WaitForElement("com.instagram.android:id/share_button", "Share");
         Console.Error.WriteLine("[instagram] publication.monitor.settings: disabling UiAutomator2 idle wait");
-        _driver!.UpdateSettings(new Dictionary<string, object> { ["waitForIdleTimeout"] = 0L });
+        SetUiAutomatorIdleTimeout(0);
         _driver.Manage().Timeouts().ImplicitWait = TimeSpan.Zero;
         Console.Error.WriteLine("[instagram] publication.share: clicking Share");
         shareButton.Click(); // Never retry Share, even after a WebDriver timeout.
@@ -188,7 +187,7 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
             // Restore default UiAutomator2 idle wait without losing a confirmed result.
             try
             {
-                _driver!.UpdateSettings(new Dictionary<string, object> { ["waitForIdleTimeout"] = 10000L });
+                SetUiAutomatorIdleTimeout(10000);
                 Console.Error.WriteLine("[instagram] publication.monitor.settings: idle wait restored");
             }
             catch (Exception ex)
@@ -305,6 +304,31 @@ public sealed class InstagramPublisher(PublisherOptions options) : IDisposable
         }
         Task.WaitAll(stdout, stderr);
         return (process.ExitCode, stdout.Result, stderr.Result);
+    }
+
+    private void SetUiAutomatorIdleTimeout(int milliseconds)
+    {
+        Connect();
+        // Appium's settings HTTP endpoint is supported even when this C# client
+        // version does not expose AndroidDriver.UpdateSettings().
+        var server = _options.AppiumServer.TrimEnd('/');
+        var sessionId = Uri.EscapeDataString(_driver!.SessionId.ToString());
+        var url = $"{server}/session/{sessionId}/appium/settings";
+        using var client = new System.Net.Http.HttpClient
+        {
+            Timeout = TimeSpan.FromSeconds(10)
+        };
+        using var content = new System.Net.Http.StringContent(
+            System.Text.Json.JsonSerializer.Serialize(new
+            {
+                settings = new { waitForIdleTimeout = milliseconds }
+            }),
+            System.Text.Encoding.UTF8, "application/json");
+        using var response = client.PostAsync(url, content).GetAwaiter().GetResult();
+        var body = response.Content.ReadAsStringAsync().GetAwaiter().GetResult();
+        if (!response.IsSuccessStatusCode)
+            throw new InvalidOperationException(
+                $"Appium idle timeout update failed: HTTP {(int)response.StatusCode}: {body}");
     }
 
     private void Connect()
