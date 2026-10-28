@@ -212,7 +212,27 @@ public sealed class TikTokPublisher(PublisherOptions options)
         var updated = after.Descendants("node").FirstOrDefault(n => (string?)n.Attribute("resource-id") == fieldId);
         if ((string?)updated?.Attribute("text") != caption)
             throw new InvalidOperationException("Caption verification failed; Post was not pressed. Run --diagnose-ui.");
-        Console.Error.WriteLine("[tiktok] caption.fill: exact text verified; Post not pressed");
+        Console.Error.WriteLine("[tiktok] caption.suggestions: finishing last hashtag with a space");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "text", "%s");
+        await Task.Delay(350, cancellationToken);
+        await RequireUiAsync("hashtag suggestions dismissed", x =>
+            x.Descendants("node").Any(n =>
+                (string?)n.Attribute("resource-id") == fieldId &&
+                ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim()) &&
+            !HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/k0y") &&
+            !HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/k0x"),
+            cancellationToken);
+
+        Console.Error.WriteLine("[tiktok] caption.keyboard: hiding keyboard with BACK");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "keyevent", "4");
+        await RequireUiAsync("posting screen after keyboard dismissal", x =>
+            x.Descendants("node").Any(n =>
+                (string?)n.Attribute("resource-id") == fieldId &&
+                ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim()) &&
+            !HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/k0y") &&
+            HasUi(x, "resource-id", "com.zhiliaoapp.musically:id/tl7"),
+            cancellationToken);
+        Console.Error.WriteLine("[tiktok] caption.ready: text verified, suggestions dismissed, keyboard back requested; Post not pressed");
     }
 
     /// <summary>
