@@ -98,6 +98,35 @@ public sealed class TikTokPublisher(PublisherOptions options)
         }
     }
 
+    /// <summary>Navigate to the Home tab using its live accessibility bounds.</summary>
+    public async Task GoHomeAsync(CancellationToken cancellationToken = default)
+    {
+        const string homeId = "com.zhiliaoapp.musically:id/op1";
+        await RequireUiAsync("Home navigation", xml => xml.Descendants("node").Any(n =>
+            (string?)n.Attribute("resource-id") == homeId &&
+            (string?)n.Attribute("content-desc") == "Home" &&
+            (string?)n.Attribute("enabled") == "true" &&
+            TryGetBoundsCenter((string?)n.Attribute("bounds"), out _, out _)), cancellationToken);
+        var xml = await ReadUiAsync(cancellationToken);
+        var home = xml.Descendants("node").SingleOrDefault(n =>
+            (string?)n.Attribute("resource-id") == homeId &&
+            (string?)n.Attribute("content-desc") == "Home" &&
+            (string?)n.Attribute("enabled") == "true");
+        if (home is null || !TryGetBoundsCenter((string?)home.Attribute("bounds"), out var x, out var y))
+            throw new InvalidOperationException("Home button unavailable; no tap performed.");
+        if ((string?)home.Attribute("selected") != "true")
+        {
+            Console.Error.WriteLine($"[tiktok] home.open: tap=({x},{y})");
+            var adb = new AdbClient(options.AdbPath);
+            await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", x.ToString(), y.ToString());
+        }
+        else Console.Error.WriteLine("[tiktok] home.open: already selected");
+        await RequireUiAsync("Home selected", screen => screen.Descendants("node").Any(n =>
+            (string?)n.Attribute("resource-id") == homeId &&
+            (string?)n.Attribute("content-desc") == "Home" &&
+            (string?)n.Attribute("selected") == "true"), cancellationToken);
+    }
+
     /// <summary>Tap Create using the visible accessibility node or its clickable ancestor.</summary>
     public async Task OpenCreateAsync(CancellationToken cancellationToken = default)
     {
@@ -274,34 +303,32 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] caption.ready: text verified, suggestions dismissed, keyboard back requested; Post not pressed");
     }
 
-    /// <summary>Press the bottom Post button once and capture UI XML every two seconds for diagnostics.</summary>
-    public async Task PressPostAndDiagnoseAsync(CancellationToken cancellationToken = default)
+    /// <summary>Press Post once; require visible evidence of the new video before reporting success.</summary>
+    public async Task<string> PressPostAndConfirmAsync(string caption, CancellationToken cancellationToken = default)
     {
         const string postId = "com.zhiliaoapp.musically:id/tl7";
         const string captionId = "com.zhiliaoapp.musically:id/h_n";
-        Console.Error.WriteLine("[tiktok] post.guard: verifying bottom Post button and caption");
-        await RequireUiAsync("bottom Post ready", x =>
-            x.Descendants("node").Any(n =>
+        const string descId = "com.zhiliaoapp.musically:id/desc";
+        const string timeId = "com.zhiliaoapp.musically:id/tv_post_time";
+        const string videoId = "com.zhiliaoapp.musically:id/long_press_layout";
+        await RequireUiAsync("bottom Post ready", xml =>
+            xml.Descendants("node").Any(n =>
                 (string?)n.Attribute("resource-id") == postId &&
                 (string?)n.Attribute("text") == "Post" &&
                 (string?)n.Attribute("enabled") == "true" &&
                 (string?)n.Attribute("bounds") == "[550,2179][1048,2305]") &&
-            HasUi(x, "resource-id", captionId), cancellationToken);
+            xml.Descendants("node").Any(n =>
+                (string?)n.Attribute("resource-id") == captionId &&
+                ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim()), cancellationToken);
 
-        var directory = Path.GetFullPath(Path.Combine(
-            Directory.GetCurrentDirectory(), "diagnostics",
-            $"tiktok_post_{DateTime.Now:yyyyMMdd_HHmmss}"));
+        var directory = Path.GetFullPath(Path.Combine(Directory.GetCurrentDirectory(),
+            "diagnostics", $"tiktok_post_{DateTime.Now:yyyyMMdd_HHmmss}"));
         Directory.CreateDirectory(directory);
-        var adb = new AdbClient(options.AdbPath);
-        Console.Error.WriteLine($"[tiktok] post.diagnostics: {directory}");
-        // Capture baseline before the irreversible action.
         File.WriteAllText(Path.Combine(directory, "ui_00_before_post.xml"),
-            (await ReadUiAsync(cancellationToken)).ToString(),
-            new System.Text.UTF8Encoding(false));
-
-        Console.Error.WriteLine("[tiktok] post.tap: pressing bottom Post ONCE at (799,2242)");
+            (await ReadUiAsync(cancellationToken)).ToString(), new System.Text.UTF8Encoding(false));
+        var adb = new AdbClient(options.AdbPath);
+        Console.Error.WriteLine("[tiktok] post.tap: pressing Post ONCE at (799,2242)");
         await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "799", "2242");
-        Console.Error.WriteLine("[tiktok] post.tap: completed; publication outcome is NOT yet confirmed");
 
         for (var i = 1; i <= 15; i++)
         {
@@ -311,24 +338,33 @@ public sealed class TikTokPublisher(PublisherOptions options)
                 var xml = await ReadUiAsync(cancellationToken);
                 var file = Path.Combine(directory, $"ui_{i:00}_after_post.xml");
                 File.WriteAllText(file, xml.ToString(), new System.Text.UTF8Encoding(false));
-                var markers = xml.Descendants("node")
-                    .Select(n => (string?)n.Attribute("text") ?? "")
-                    .Where(s => s.Length > 0)
-                    .Distinct()
-                    .Take(18);
-                Console.Error.WriteLine($"[tiktok] post.diagnostics: sample={i:00}/15 file={file} text=[{string.Join(" | ", markers)}]");
+                bool captionMatches = xml.Descendants("node").Any(n =>
+                    (string?)n.Attribute("resource-id") == descId &&
+                    ((string?)n.Attribute("text") ?? "").Trim() == caption.Trim());
+                bool recentPost = xml.Descendants("node").Any(n =>
+                    (string?)n.Attribute("resource-id") == timeId &&
+                    ((string?)n.Attribute("text") ?? "").Contains("ago", StringComparison.OrdinalIgnoreCase) == true);
+                bool videoScreen = xml.Descendants("node").Any(n =>
+                    (string?)n.Attribute("resource-id") == videoId &&
+                    (string?)n.Attribute("content-desc") == "Video");
+                Console.Error.WriteLine($"[tiktok] post.confirm: sample={i:00}/15 caption={captionMatches} recent={recentPost} video={videoScreen}");
+                if (captionMatches && recentPost && videoScreen)
+                {
+                    Console.Error.WriteLine($"[tiktok] publication.confirmed: UI evidence {file}");
+                    return file;
+                }
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                Console.Error.WriteLine($"[tiktok] post.diagnostics: sample={i:00}/15 failed: {ex.Message}");
+                Console.Error.WriteLine($"[tiktok] post.confirm: sample={i:00}/15 dump failed: {ex.Message}");
             }
         }
-        Console.Error.WriteLine("[tiktok] post.diagnostics: finished; success NOT inferred from tap. Inspect captured XML.");
+        throw new InvalidOperationException(
+            $"TikTok Post was tapped ONCE, but publication could not be confirmed from UI. Do NOT retry automatically: it may create a duplicate. Diagnostics: {directory}");
     }
 
     /// <summary>
-    /// Prepares video and advances through gallery; never presses Post or Share.
-    /// Future stages will be implemented after UI XML inspection.
+    /// Uploads video and confirms publication using UI evidence after pressing Post once.
     /// </summary>
     public async Task PreparePublicationAsync(
         string localPath, string caption, CancellationToken cancellationToken = default)
@@ -369,6 +405,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
 
         await OpenTikTokAsync(cancellationToken);
         await Task.Delay(1500, cancellationToken);
+        await GoHomeAsync(cancellationToken);
         await OpenCreateAsync(cancellationToken);
         await Task.Delay(1500, cancellationToken);
         await OpenGalleryAsync(cancellationToken);
@@ -383,7 +420,7 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await PressEditorNextAsync(cancellationToken);
         await Task.Delay(1200, cancellationToken);
         await FillCaptionAsync(caption, cancellationToken);
-        await PressPostAndDiagnoseAsync(cancellationToken);
-        Console.Error.WriteLine("[tiktok] publication.unconfirmed: Post tapped once; inspect diagnostics before declaring success");
+        var evidence = await PressPostAndConfirmAsync(caption, cancellationToken);
+        Console.Error.WriteLine($"[tiktok] publication.confirmed: {evidence}");
     }
 }
