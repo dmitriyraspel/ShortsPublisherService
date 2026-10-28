@@ -69,6 +69,29 @@ public sealed class TikTokPublisher(PublisherOptions options)
     }
 
     /// <summary>
+    /// Select the first video tile in the Videos gallery, as in the Instagram flow.
+    /// This does not verify the file identity; it assumes newest media appears first.
+    /// </summary>
+    public async Task SelectFirstGalleryVideoAsync(CancellationToken cancellationToken = default)
+    {
+        Console.Error.WriteLine("[tiktok] gallery.select: tapping first video thumbnail (position-based)");
+        var adb = new AdbClient(options.AdbPath);
+        // Diagnosed first tile bounds=[5,381][359,738]. Avoid its top-right checkbox.
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "150", "560");
+        Console.Error.WriteLine("[tiktok] gallery.select: tap completed");
+    }
+
+    /// <summary>Press Next after selecting a gallery video. Does not publish.</summary>
+    public async Task PressNextAsync(CancellationToken cancellationToken = default)
+    {
+        Console.Error.WriteLine("[tiktok] gallery.next: tapping Next");
+        var adb = new AdbClient(options.AdbPath);
+        // Diagnosed Next button id=y3s, bounds=[550,2179][1048,2295].
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "800", "2237");
+        Console.Error.WriteLine("[tiktok] gallery.next: tap completed; publication not attempted");
+    }
+
+    /// <summary>
     /// Safe placeholder. Does not press Upload, Next, Post, or Share.
     /// Future stages will be implemented after UI XML inspection.
     /// </summary>
@@ -116,8 +139,11 @@ public sealed class TikTokPublisher(PublisherOptions options)
         await OpenGalleryAsync(cancellationToken);
         await Task.Delay(700, cancellationToken);
         await SelectVideosTabAsync(cancellationToken);
-        Console.Error.WriteLine("[tiktok] gallery.ready: Videos tab requested; inspect --diagnose-ui");
-        Console.Error.WriteLine("[tiktok] gallery.selection: skipped; XML exposes durations and thumbnails but no file identity");
-        Console.Error.WriteLine("[tiktok] publication.pending: no video selected, Next/Post not pressed; nothing published");
+        Console.Error.WriteLine("[tiktok] gallery.ready: Videos tab requested");
+        await Task.Delay(900, cancellationToken);
+        await SelectFirstGalleryVideoAsync(cancellationToken);
+        await Task.Delay(1200, cancellationToken);
+        await PressNextAsync(cancellationToken);
+        Console.Error.WriteLine("[tiktok] publication.pending: Next requested; Post not pressed; nothing published");
     }
 }
