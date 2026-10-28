@@ -98,17 +98,49 @@ public sealed class TikTokPublisher(PublisherOptions options)
         }
     }
 
-    /// <summary>Tap the Create (+) button on TikTok's bottom navigation.</summary>
+    /// <summary>Tap the actual Create navigation button using its current XML bounds.</summary>
     public async Task OpenCreateAsync(CancellationToken cancellationToken = default)
     {
-        Console.Error.WriteLine("[tiktok] create.open: tapping bottom-center Create button");
+        const string uploadId = "com.zhiliaoapp.musically:id/upload_hot_area";
+        Console.Error.WriteLine("[tiktok] create.open: locating Create in current UI");
         var adb = new AdbClient(options.AdbPath);
-        // Verified from --diagnose-ui: content-desc="Create", id=oox,
-        // bounds=[432,2208][648,2337] on the 1080x2400 emulator.
-        // TODO: replace fixed coordinates with a UI selector after Appium integration.
-        await RequireUiAsync("home Create", x => HasUi(x, "content-desc", "Create"), cancellationToken);
-        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "540", "2272");
-        Console.Error.WriteLine("[tiktok] create.open: tap completed");
+        await RequireUiAsync("home Create", x => x.Descendants("node").Any(n =>
+            (string?)n.Attribute("content-desc") == "Create" &&
+            (string?)n.Attribute("clickable") == "true" &&
+            (string?)n.Attribute("enabled") == "true" &&
+            TryGetBoundsCenter((string?)n.Attribute("bounds"), out _, out _)), cancellationToken);
+
+        // Re-read immediately before tapping; stale coordinates can open For You instead.
+        var xml = await ReadUiAsync(cancellationToken);
+        var candidates = xml.Descendants("node")
+            .Where(n => (string?)n.Attribute("content-desc") == "Create" &&
+                        (string?)n.Attribute("clickable") == "true" &&
+                        (string?)n.Attribute("enabled") == "true")
+            .ToList();
+        if (candidates.Count != 1 ||
+            !TryGetBoundsCenter((string?)candidates[0].Attribute("bounds"), out var x, out var y))
+            throw new InvalidOperationException($"Expected exactly one clickable Create button, found {candidates.Count}. No tap performed.");
+        Console.Error.WriteLine($"[tiktok] create.open: Create bounds={(string?)candidates[0].Attribute("bounds")}; tap=({x},{y})");
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", x.ToString(), y.ToString());
+        await RequireUiAsync("create screen after tap", screen => HasUi(screen, "resource-id", uploadId), cancellationToken);
+        Console.Error.WriteLine("[tiktok] create.open: Create screen verified");
+    }
+
+    private static bool TryGetBoundsCenter(string? bounds, out int x, out int y)
+    {
+        x = y = 0;
+        if (string.IsNullOrEmpty(bounds)) return false;
+        var match = System.Text.RegularExpressions.Regex.Match(bounds,
+            @"^\\[(\\d+),(\\d+)\\]\\[(\\d+),(\\d+)\\]$");
+        if (!match.Success ||
+            !int.TryParse(match.Groups[1].Value, out var left) ||
+            !int.TryParse(match.Groups[2].Value, out var top) ||
+            !int.TryParse(match.Groups[3].Value, out var right) ||
+            !int.TryParse(match.Groups[4].Value, out var bottom) ||
+            right <= left || bottom <= top) return false;
+        x = left + (right - left) / 2;
+        y = top + (bottom - top) / 2;
+        return true;
     }
 
     /// <summary>Open the media gallery from TikTok's Create screen.</summary>
