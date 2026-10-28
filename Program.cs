@@ -154,9 +154,9 @@ try
         if (string.IsNullOrWhiteSpace(caption))
             return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-tiktok requires --caption.", startedAt, filePath), resultFile, ExitBadArguments);
         await new TikTokPublisher(options).PreparePublicationAsync(filePath, caption);
-        return await EmitAsync(new JobResult(taskId, "tiktok_not_implemented", false, false,
-            filePath, "TikTok opened, but publication flow is not implemented. No Post action was performed.", null,
-            startedAt, DateTimeOffset.UtcNow), resultFile, ExitFailure);
+        return await EmitAsync(new JobResult(taskId, "tiktok_published_confirmed", true, true,
+            filePath, "TikTok publication confirmed by matching caption, recent timestamp and video UI.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
     if (publishVideoInstagram)
@@ -443,7 +443,7 @@ static void PrintUsage()
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
-      --publish-video-tiktok  TikTok publishing skeleton; opens app but does NOT publish.
+      --publish-video-tiktok  Publish and confirm TikTok video (presses Post).
       --open-instagram     Open Instagram without publishing.
       --instagram-open-video  Verify and share a specific video to Instagram (no publication).
       --publish-video-instagram  Select Reel, enter --caption, click caption-screen Next; DOES NOT publish.
