@@ -33,6 +33,18 @@ public sealed class TikTokPublisher(PublisherOptions options)
         Console.Error.WriteLine("[tiktok] app.open: launch command completed");
     }
 
+    /// <summary>Tap the Create (+) button on TikTok's bottom navigation.</summary>
+    public async Task OpenCreateAsync(CancellationToken cancellationToken = default)
+    {
+        Console.Error.WriteLine("[tiktok] create.open: tapping bottom-center Create button");
+        var adb = new AdbClient(options.AdbPath);
+        // Verified from --diagnose-ui: content-desc="Create", id=oox,
+        // bounds=[432,2208][648,2337] on the 1080x2400 emulator.
+        // TODO: replace fixed coordinates with a UI selector after Appium integration.
+        await adb.ShellAsync(options.DeviceId, cancellationToken, "input", "tap", "540", "2272");
+        Console.Error.WriteLine("[tiktok] create.open: tap completed");
+    }
+
     /// <summary>
     /// Safe placeholder. Does not press Upload, Next, Post, or Share.
     /// Future stages will be implemented after UI XML inspection.
