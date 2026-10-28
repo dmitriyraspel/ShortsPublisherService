@@ -158,3 +158,28 @@ adb devices
 ## Experimental Instagram file handoff
 
 Run `dotnet run -- --file ".\\videos\\clip.mp4" --instagram-open-video` to verify the local and Android SHA-256 values, locate a uniquely named MediaStore entry, and attempt an Android ACTION_SEND to Instagram. The command saves UI XML in `diagnostics/` and **never publishes**. A successful exit means the handoff was attempted, **not** that Instagram selected the correct video. Inspect the emulator and XML. The Android device must support `sha256sum` and MediaStore queries.
+
+
+## TikTok (в разработке)
+
+Работа ведётся в ветке `feature/tiktok`. Сначала установите TikTok и войдите в аккаунт на Android-эмуляторе.
+
+Открыть TikTok без публикации:
+
+```powershell
+& $DOTNET run -- --open-tiktok
+```
+
+Сохранить XML текущего экрана TikTok (приложение должно быть открыто):
+
+```powershell
+& $DOTNET run -- --diagnose-ui
+```
+
+Каркас публикации, **пока ничего не публикует**:
+
+```powershell
+& $DOTNET run -- --file ".\\videos\\new-video.mp4" --caption "Caption #tiktok" --publish-video-tiktok
+```
+
+Команда проверяет входной файл и подпись, открывает TikTok и возвращает `tiktok_not_implemented` с `Success=false`, `Published=false` и кодом выхода 1. Загрузка файла в TikTok, нажатие Post и подтверждение публикации пока не реализованы. Этапы добавляются после проверки XML интерфейса. Пакет TikTok по умолчанию: `com.zhiliaoapp.musically`; если установлена другая версия приложения, потребуется скорректировать идентификатор пакета.

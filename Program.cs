@@ -19,6 +19,10 @@ bool instagramCreate = false;
 bool instagramSelectReel = false;
 bool instagramOpenVideo = false;
 bool publishVideoInstagram = false;
+bool openTikTok = false;
+bool tiktokCreate = false;
+bool tiktokGallery = false;
+bool publishVideoTikTok = false;
 
 
 
@@ -58,6 +62,18 @@ for (var i = 0; i < args.Length; i++)
         case "--instagram-open-video":
             instagramOpenVideo = true;
             break;
+        case "--tiktok-gallery":
+            tiktokGallery = true;
+            break;
+        case "--tiktok-create":
+            tiktokCreate = true;
+            break;
+        case "--open-tiktok":
+            openTikTok = true;
+            break;
+        case "--publish-video-tiktok":
+            publishVideoTikTok = true;
+            break;
         case "--diagnose-ui":
             diagnoseUi = true;
             break;
@@ -74,7 +90,10 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!openInstagram &&
+if (!tiktokGallery &&
+    !tiktokCreate &&
+    !openTikTok &&
+    !openInstagram &&
     !instagramHome &&
     !instagramCreate &&
     !instagramSelectReel &&
@@ -103,6 +122,42 @@ try
 
     var options = configuration.GetSection("Publisher")
         .Get<PublisherOptions>() ?? new PublisherOptions();
+
+    if (tiktokGallery)
+    {
+        await new TikTokPublisher(options).OpenGalleryAsync();
+        return await EmitAsync(new JobResult(taskId, "tiktok_gallery_opened", true, false,
+            null, "Tapped TikTok Upload gallery button; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (tiktokCreate)
+    {
+        await new TikTokPublisher(options).OpenCreateAsync();
+        return await EmitAsync(new JobResult(taskId, "tiktok_create_opened", true, false,
+            null, "Tapped TikTok Create (+) button; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (openTikTok)
+    {
+        await new TikTokPublisher(options).OpenTikTokAsync();
+        return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
+            null, "TikTok launch command completed; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (publishVideoTikTok)
+    {
+        if (string.IsNullOrWhiteSpace(filePath))
+            return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-tiktok requires --file.", startedAt), resultFile, ExitBadArguments);
+        if (string.IsNullOrWhiteSpace(caption))
+            return await EmitAsync(Failure(taskId, "invalid_arguments", "--publish-video-tiktok requires --caption.", startedAt, filePath), resultFile, ExitBadArguments);
+        await new TikTokPublisher(options).PreparePublicationAsync(filePath, caption);
+        return await EmitAsync(new JobResult(taskId, "tiktok_published_confirmed", true, true,
+            filePath, "TikTok publication confirmed by matching caption, recent timestamp and video UI.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
 
     if (publishVideoInstagram)
     {
@@ -372,6 +427,10 @@ static void PrintUsage()
     Usage:
       ShortsPublisher.exe --file "C:\Videos\clip.mp4" --caption "Caption"
       ShortsPublisher.exe --diagnose-ui
+      ShortsPublisher.exe --tiktok-gallery
+      ShortsPublisher.exe --tiktok-create
+      ShortsPublisher.exe --open-tiktok
+      ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --caption "Caption" --publish-video-tiktok
       ShortsPublisher.exe --open-instagram
       ShortsPublisher.exe --file "C:\\Videos\\clip.mp4" --instagram-open-video
 
@@ -381,6 +440,10 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
+      --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
+      --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
+      --open-tiktok       Open TikTok without publishing.
+      --publish-video-tiktok  Publish and confirm TikTok video (presses Post).
       --open-instagram     Open Instagram without publishing.
       --instagram-open-video  Verify and share a specific video to Instagram (no publication).
       --publish-video-instagram  Select Reel, enter --caption, click caption-screen Next; DOES NOT publish.
