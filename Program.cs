@@ -179,7 +179,7 @@ try
         var published = preparation.Status == "facebook_reel_published";
         var submitted = published || preparation.Status == "facebook_reel_share_submitted_unconfirmed";
         return await EmitAsync(new JobResult(taskId, preparation.Status, submitted, published,
-            filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow),
+            filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow, preparation.PublicationUrl),
             resultFile, submitted ? ExitSuccess : ExitFailure);
     }
 
