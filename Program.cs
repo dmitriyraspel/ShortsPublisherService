@@ -161,8 +161,9 @@ try
     {
         using var facebookReels = new FacebookReelsPublisher(options);
         var preparation = facebookReels.OpenReelCreation(filePath, caption, CancellationToken.None);
-        var submitted = preparation.Status == "facebook_reel_share_submitted_unconfirmed";
-        return await EmitAsync(new JobResult(taskId, preparation.Status, submitted, false,
+        var published = preparation.Status == "facebook_reel_published";
+        var submitted = published || preparation.Status == "facebook_reel_share_submitted_unconfirmed";
+        return await EmitAsync(new JobResult(taskId, preparation.Status, submitted, published,
             filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow),
             resultFile, submitted ? ExitSuccess : ExitFailure);
     }
