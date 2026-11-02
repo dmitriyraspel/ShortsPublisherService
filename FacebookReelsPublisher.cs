@@ -1,4 +1,5 @@
 using System.Security.Cryptography;
+using System.Xml.Linq;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Appium;
 using OpenQA.Selenium.Appium.Android;
@@ -191,6 +192,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                 Directory.CreateDirectory(diagnosticDirectory);
                                                 var sampleCount = 0;
                                                 var diagnosticErrors = 0;
+                                                var confirmedSamples = 0;
                                                 // Capture the changing UI for analysis. Do not infer success from
                                                 // the click or from the disappearance of the editor.
                                                 for (var sample = 0; sample < 45; sample++)
@@ -200,8 +202,31 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                         $"screen_{sample:000}_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
                                                     try
                                                     {
-                                                        File.WriteAllText(xmlPath, _driver.PageSource);
+                                                        var pageXml = _driver.PageSource;
+                                                        File.WriteAllText(xmlPath, pageXml);
                                                         sampleCount++;
+                                                        // A matching caption in the feed together with the Reel type
+                                                        // is stronger evidence than the upload banner disappearing.
+                                                        if (!string.IsNullOrWhiteSpace(caption))
+                                                        {
+                                                            var nodes = XDocument.Parse(pageXml).Descendants();
+                                                            var captionVisible = nodes.Any(n =>
+                                                                string.Equals((string?)n.Attribute("text"), caption, StringComparison.Ordinal) ||
+                                                                string.Equals((string?)n.Attribute("content-desc"), caption, StringComparison.Ordinal));
+                                                            var reelVisible = nodes.Any(n =>
+                                                                string.Equals((string?)n.Attribute("text"), "Видео Reels", StringComparison.Ordinal) ||
+                                                                string.Equals((string?)n.Attribute("content-desc"), "Видео Reels", StringComparison.Ordinal) ||
+                                                                string.Equals((string?)n.Attribute("text"), "Reel", StringComparison.Ordinal));
+                                                            var uploading = pageXml.Contains("Завершение загрузки видео Reels", StringComparison.Ordinal);
+                                                            confirmedSamples = captionVisible && reelVisible && !uploading ? confirmedSamples + 1 : 0;
+                                                            if (confirmedSamples >= 2)
+                                                            {
+                                                                Console.Error.WriteLine("[facebook-reel] share.confirmed: matching Reel visible in feed");
+                                                                return new FacebookReelsPreparationResult(
+                                                                    "facebook_reel_published",
+                                                                    $"Matching Reel caption and Reel label observed in two consecutive XML snapshots. Diagnostics: {Path.GetFullPath(diagnosticDirectory)}.");
+                                                            }
+                                                        }
                                                         Console.Error.WriteLine($"[facebook-reel] share.xml: {xmlPath}");
                                                     }
                                                     catch (Exception ex)
