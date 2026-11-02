@@ -221,6 +221,21 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
             try
             {
                 var xml = _driver.PageSource;
+                // Facebook occasionally displays a camera-shortcut prompt after Share.
+                // Dismiss only this specific dialog; otherwise it hides the profile
+                // and prevents the story indicator from being observed.
+                if (xml.Contains("С легкостью дополняйте свою историю", StringComparison.Ordinal)
+                    && xml.Contains("Добавьте быструю ссылку", StringComparison.Ordinal))
+                {
+                    var dismiss = _driver.FindElements(By.Id("android:id/button2"))
+                        .FirstOrDefault(button => button.Displayed && button.Enabled
+                            && button.Text == "Не сейчас");
+                    if (dismiss is not null)
+                    {
+                        Console.Error.WriteLine("[facebook] share.dialog: dismissing camera shortcut prompt with Не сейчас");
+                        dismiss.Click();
+                    }
+                }
                 File.WriteAllText(diagnosticFile, xml);
                 Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
                 indicatorSeen = xml.Contains(storyIndicator, StringComparison.OrdinalIgnoreCase)
