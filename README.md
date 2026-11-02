@@ -180,6 +180,16 @@ adb devices
 
 Если после отправки подтверждение не получено, возвращается `facebook_reel_share_submitted_unconfirmed`, `Success: false`, `Published: false` и код завершения `1`. **Не повторяйте публикацию автоматически:** сначала проверьте Facebook, чтобы избежать дубликатов. Отсутствующий или пустой `--caption` возвращает `invalid_arguments` с кодом `2`, не начиная публикацию.
 
+### Закрытие Facebook
+
+Остановить приложение Facebook на Android без публикации, удаления данных или выхода из аккаунта:
+
+```powershell
+& $DOTNET run -- --close-facebook
+```
+
+Команда использует `adb shell am force-stop com.facebook.katana` на устройстве из `Publisher:DeviceId`. При успехе возвращает `Status: facebook_closed`, `Success: true`, `Published: false` и код завершения `0`. При ошибке ADB возвращает `failed` и код `1`. Appium для этой команды не нужен.
+
 ### Получение ссылки без повторной публикации
 
 Рекомендуемый проверенный способ — через меню с тремя точками у **уже видимой** публикации:
