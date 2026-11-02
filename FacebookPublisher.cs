@@ -101,6 +101,12 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         if (!profileVerified)
             Console.Error.WriteLine("[facebook] profile.verify: checking profile action");
 
+        const string storyIndicator = "Фото профиля с непросмотренными историями";
+        const string englishStoryIndicator = "Profile picture with unseen stories";
+        var profileBeforeShare = _driver.PageSource;
+        var hadActiveStory = profileBeforeShare.Contains(storyIndicator, StringComparison.OrdinalIgnoreCase)
+            || profileBeforeShare.Contains(englishStoryIndicator, StringComparison.OrdinalIgnoreCase);
+        Console.Error.WriteLine($"[facebook] story.baseline: active story indicator present={hadActiveStory}");
         Console.Error.WriteLine("[facebook] story.open: locating Add to story");
         var storyDeadline = DateTime.UtcNow.AddSeconds(20);
         IWebElement? addToStory = null;
@@ -192,54 +198,50 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         var observation = System.Diagnostics.Stopwatch.StartNew();
         var nextSnapshot = TimeSpan.FromSeconds(2);
         var snapshot = 0;
-        var notificationSeen = false;
+        var indicatorSeen = false;
         while (observation.Elapsed < TimeSpan.FromSeconds(200))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            // Lightweight UI checks between full XML dumps help catch short-lived toasts.
+            if (observation.Elapsed < nextSnapshot)
+            {
+                Thread.Sleep(250);
+                continue;
+            }
+
+            snapshot++;
+            var diagnosticFile = Path.Combine(diagnosticDirectory, $"screen_{snapshot:000}.xml");
             try
             {
-                var notice = _driver.FindElements(By.XPath(
-                    "//*[contains(@text,'История опубликована') or contains(@content-desc,'История опубликована') or " +
-                    "contains(@text,'Story shared') or contains(@content-desc,'Story shared')]"));
-                if (notice.Count > 0 && !notificationSeen)
+                var xml = _driver.PageSource;
+                File.WriteAllText(diagnosticFile, xml);
+                Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
+                indicatorSeen = xml.Contains(storyIndicator, StringComparison.OrdinalIgnoreCase)
+                    || xml.Contains(englishStoryIndicator, StringComparison.OrdinalIgnoreCase);
+                if (indicatorSeen && !hadActiveStory)
                 {
-                    notificationSeen = true;
-                    Console.Error.WriteLine($"[facebook] diagnostics.notice: publication message observed at {observation.Elapsed.TotalSeconds:F1}s");
+                    Console.Error.WriteLine($"[facebook] share.confirmed: new story indicator appeared after {observation.Elapsed.TotalSeconds:F1}s");
+                    return Task.FromResult(new FacebookPreparationResult(
+                        "published", "Facebook profile acquired the unseen-stories indicator after Share.", true));
                 }
+                if (indicatorSeen && hadActiveStory)
+                    Console.Error.WriteLine("[facebook] share.verify: story indicator existed before Share; cannot confirm new publication");
             }
-            catch (WebDriverException ex)
+            catch (Exception ex) when (ex is WebDriverException or IOException or UnauthorizedAccessException)
             {
-                Console.Error.WriteLine($"[facebook] diagnostics.notice: UI check failed: {ex.Message}");
+                Console.Error.WriteLine($"[facebook] diagnostics.xml: capture {snapshot} failed: {ex.Message}");
             }
 
-            if (observation.Elapsed >= nextSnapshot)
-            {
-                snapshot++;
-                var diagnosticFile = Path.Combine(diagnosticDirectory, $"screen_{snapshot:000}.xml");
-                try
-                {
-                    File.WriteAllText(diagnosticFile, _driver.PageSource);
-                    Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
-                }
-                catch (Exception ex) when (ex is WebDriverException or IOException or UnauthorizedAccessException)
-                {
-                    Console.Error.WriteLine($"[facebook] diagnostics.xml: capture {snapshot} failed: {ex.Message}");
-                }
+            nextSnapshot += TimeSpan.FromSeconds(2);
+            while (nextSnapshot <= observation.Elapsed)
                 nextSnapshot += TimeSpan.FromSeconds(2);
-                // Skip missed intervals rather than attempting a burst of stale captures.
-                while (nextSnapshot <= observation.Elapsed)
-                    nextSnapshot += TimeSpan.FromSeconds(2);
-            }
-            Thread.Sleep(250);
         }
-        Console.Error.WriteLine($"[facebook] share.tap: diagnostics completed after {observation.Elapsed.TotalSeconds:F1}s; noticeSeen={notificationSeen}; publication confirmation not verified");
+        Console.Error.WriteLine($"[facebook] share.unconfirmed: no new story indicator after {observation.Elapsed.TotalSeconds:F1}s");
         return Task.FromResult(new FacebookPreparationResult(
-            "facebook_share_tapped",
-            "Tapped Facebook story Share button. Submission was initiated; observed post-share UI for 200 seconds, saving XML approximately every 2 seconds in diagnostics/facebook. Publication was not independently verified."));
-
-
-
+            "facebook_share_unconfirmed",
+            hadActiveStory
+                ? "Story indicator already existed before Share; new publication cannot be confirmed by this signal."
+                : "Story indicator did not appear within 200 seconds after Share.",
+            false));
     }
 
     private void Connect()
@@ -263,4 +265,4 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
     }
 }
 
-public sealed record FacebookPreparationResult(string Status, string Message);
+public sealed record FacebookPreparationResult(string Status, string Message, bool Published = false);
