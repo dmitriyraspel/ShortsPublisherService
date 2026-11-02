@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Appium;
 using OpenQA.Selenium.Appium.Android;
@@ -13,9 +14,35 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
     private const string FacebookPackage = "com.facebook.katana";
     private AndroidDriver? _driver;
 
-    public FacebookReelsPreparationResult OpenReelCreation(CancellationToken cancellationToken = default)
+    public FacebookReelsPreparationResult OpenReelCreation(string? filePath, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
+        if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
+            throw new FileNotFoundException("Facebook Reel requires an existing --file video.", filePath);
+        if (!new[] { ".mp4", ".mov", ".m4v" }.Contains(Path.GetExtension(filePath), StringComparer.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Unsupported Facebook Reel video extension.");
+        if (new FileInfo(filePath).Length == 0)
+            throw new InvalidOperationException("Facebook Reel video is empty.");
+
+        using var input = File.OpenRead(filePath);
+        var sha = Convert.ToHexString(SHA256.HashData(input)).ToLowerInvariant();
+        var remoteDirectory = options.AndroidMediaDirectory.TrimEnd('/');
+        var remotePath = $"{remoteDirectory}/fb_reel_{sha[..16]}_{Path.GetFileName(filePath)}";
+        var adb = new AdbClient(options.AdbPath);
+        var devices = adb.DevicesAsync(cancellationToken).GetAwaiter().GetResult();
+        if (!devices.Split('\\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\\tdevice", StringComparison.Ordinal)))
+            throw new InvalidOperationException("Configured Android device is not ready.");
+        adb.ShellAsync(options.DeviceId, cancellationToken, "mkdir", "-p", remoteDirectory).GetAwaiter().GetResult();
+        Console.Error.WriteLine("[facebook-reel] media.push: copying video to Android");
+        adb.PushAsync(options.DeviceId, filePath, remotePath, cancellationToken).GetAwaiter().GetResult();
+        var remoteHashOutput = adb.ShellAsync(options.DeviceId, cancellationToken, "sha256sum", remotePath).GetAwaiter().GetResult();
+        var remoteHash = remoteHashOutput.Split((char[]?)null, StringSplitOptions.RemoveEmptyEntries).FirstOrDefault();
+        if (!string.Equals(sha, remoteHash, StringComparison.OrdinalIgnoreCase))
+            throw new InvalidOperationException("Facebook Reel Android SHA-256 mismatch.");
+        Console.Error.WriteLine("[facebook-reel] media.verify: SHA-256 matches");
+        adb.ShellAsync(options.DeviceId, cancellationToken, "am", "broadcast",
+            "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}").GetAwaiter().GetResult();
+        Console.Error.WriteLine("[facebook-reel] media.scan: requested");
         Console.Error.WriteLine("[facebook-reel] app.open: connecting to Facebook");
         var caps = new AppiumOptions();
         caps.PlatformName = "Android";
@@ -92,9 +119,28 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                     if (_driver.FindElements(By.XPath(
                         "//*[@text='Создание видео Reels' or @content-desc='Создание видео Reels' or @text='Create reel' or @content-desc='Create reel']"))
                         .Any(element => element.Displayed))
-                        return new FacebookReelsPreparationResult(
-                            "facebook_reel_creation_opened",
-                            "Facebook Reels creation gallery opened from Home. No video selected or published.");
+                    {
+                        Console.Error.WriteLine("[facebook-reel] gallery.open: selecting newest video");
+                        var videoDeadline = DateTime.UtcNow.AddSeconds(15);
+                        while (DateTime.UtcNow < videoDeadline)
+                        {
+                            cancellationToken.ThrowIfCancellationRequested();
+                            var videos = _driver.FindElements(By.XPath(
+                                "//*[@clickable='true' and (starts-with(@content-desc,'Создать видео') or starts-with(@content-desc,'Create reel')) and contains(@content-desc,'Видео, объект 1')]"));
+                            var first = videos.FirstOrDefault(element => element.Displayed && element.Enabled);
+                            if (first is not null)
+                            {
+                                first.Click();
+                                Console.Error.WriteLine("[facebook-reel] gallery.select: tapped newest video");
+                                return new FacebookReelsPreparationResult(
+                                    "facebook_reel_video_selected",
+                                    "Newest gallery video selected. No publication attempted.");
+                            }
+                            Thread.Sleep(400);
+                        }
+                        return Failure("facebook_reel_video_not_found",
+                            "Reels gallery opened but first video tile was not found. No publication attempted.");
+                    }
                     Thread.Sleep(400);
                 }
                 return Failure("facebook_reel_gallery_not_found",
