@@ -327,7 +327,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
     private static string XPathLiteral(string value)
     {
         if (!value.Contains('\'')) return "'" + value + "'";
-        if (!value.Contains('"')) return "\\\"" + value + "\\\"";
+        if (!value.Contains('"')) return "\"" + value + "\"";
         return "concat(" + string.Join(", \"'\", ", value.Split('\'').Select(part => "'" + part + "'")) + ")";
     }
 
