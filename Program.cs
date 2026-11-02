@@ -161,10 +161,10 @@ try
     {
         using var facebookReels = new FacebookReelsPublisher(options);
         var preparation = facebookReels.OpenReelCreation(filePath, caption, CancellationToken.None);
-        var opened = preparation.Status == "facebook_reel_caption_ready";
-        return await EmitAsync(new JobResult(taskId, preparation.Status, opened, false,
+        var submitted = preparation.Status == "facebook_reel_share_submitted_unconfirmed";
+        return await EmitAsync(new JobResult(taskId, preparation.Status, submitted, false,
             filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow),
-            resultFile, opened ? ExitSuccess : ExitFailure);
+            resultFile, submitted ? ExitSuccess : ExitFailure);
     }
 
     if (publishVideoFacebook)
