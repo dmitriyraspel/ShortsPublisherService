@@ -232,11 +232,9 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                                 // turn a successful publication into a failed job.
                                                                 try
                                                                 {
-                                                                    var deleteOutput = adb.ShellAsync(options.DeviceId, CancellationToken.None,
+                                                                    _ = adb.ShellAsync(options.DeviceId, CancellationToken.None,
                                                                         "rm", "-f", remotePath).GetAwaiter().GetResult();
-                                                                    var existsOutput = adb.ShellAsync(options.DeviceId, CancellationToken.None,
-                                                                        "test", "-e", remotePath).GetAwaiter().GetResult();
-                                                                    // AdbClient may not expose exit codes; check existence explicitly below.
+                                                                    // Verify deletion via a listing because shell exit codes are not exposed here.
                                                                     var listing = adb.ShellAsync(options.DeviceId, CancellationToken.None,
                                                                         "ls", "-d", remotePath).GetAwaiter().GetResult();
                                                                     if (!string.IsNullOrWhiteSpace(listing) &&
