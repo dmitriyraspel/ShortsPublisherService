@@ -327,6 +327,15 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                          uri.Host.Equals("fb.watch", StringComparison.OrdinalIgnoreCase)))
                     {
                         Console.Error.WriteLine("[facebook-reel] link.clipboard: Facebook URL read");
+                        try
+                        {
+                            _driver.Navigate().Back();
+                            Console.Error.WriteLine("[facebook-reel] link.close: dismissed share sheet");
+                        }
+                        catch (Exception closeEx)
+                        {
+                            Console.Error.WriteLine($"[facebook-reel] link.close warning: {closeEx.Message}");
+                        }
                         return new FacebookReelsPreparationResult("facebook_reel_link_read",
                             "Copied existing Reel URL from Android clipboard; no publication attempted.", clipboard);
                     }
