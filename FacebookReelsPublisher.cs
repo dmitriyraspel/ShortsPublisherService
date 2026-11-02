@@ -267,6 +267,70 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
             "Home Create menu opened, but Reel option was not found. No publication attempted.");
     }
 
+    /// <summary>Copy the link of an already visible Facebook Reel. Never starts a publication.</summary>
+    public FacebookReelsPreparationResult CopyVisibleReelLink(string? caption = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var caps = new AppiumOptions();
+        caps.PlatformName = "Android";
+        caps.AutomationName = "UiAutomator2";
+        caps.DeviceName = "Pixel 6a";
+        caps.AddAdditionalAppiumOption("udid", options.DeviceId);
+        caps.AddAdditionalAppiumOption("appPackage", FacebookPackage);
+        caps.AddAdditionalAppiumOption("noReset", true);
+        caps.AddAdditionalAppiumOption("newCommandTimeout", 180);
+        _driver = new AndroidDriver(new Uri(options.AppiumServer), caps, TimeSpan.FromMinutes(3));
+        _driver.ActivateApp(FacebookPackage);
+        Console.Error.WriteLine("[facebook-reel] link.open: connected to existing Facebook screen");
+
+        // The user can leave the already published Reel visible in the feed.
+        // If a caption was supplied, refuse to share an unrelated visible Reel.
+        if (!string.IsNullOrWhiteSpace(caption))
+        {
+            var captionFound = _driver.FindElements(By.XPath(
+                "//*[@text=" + XPathLiteral(caption) + " or @content-desc=" + XPathLiteral(caption) + "]"))
+                .Any(e => e.Displayed);
+            if (!captionFound)
+                return new FacebookReelsPreparationResult("facebook_reel_link_caption_not_found",
+                    "Requested caption is not visible. Open the published Reel in Facebook and retry; no publication attempted.");
+        }
+
+        var share = _driver.FindElements(By.XPath(
+            "//*[@clickable='true' and (@content-desc='Поделиться' or @content-desc='Share' or @text='Поделиться' or @text='Share')]"))
+            .FirstOrDefault(e => e.Displayed && e.Enabled);
+        if (share is not null)
+        {
+            share.Click();
+            Console.Error.WriteLine("[facebook-reel] link.share: opened Reel share sheet");
+        }
+
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var copy = _driver.FindElements(By.XPath(
+                "//*[@clickable='true' and (@content-desc='Копировать ссылку' or @content-desc='Copy link' or @text='Копировать ссылку' or @text='Copy link')]"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled);
+            if (copy is not null)
+            {
+                copy.Click();
+                Console.Error.WriteLine("[facebook-reel] link.copy: tapped Copy link");
+                return new FacebookReelsPreparationResult("facebook_reel_link_copied",
+                    "Tapped Copy link for an existing Reel. URL is in Android clipboard; no publication attempted.");
+            }
+            Thread.Sleep(400);
+        }
+        return new FacebookReelsPreparationResult("facebook_reel_copy_link_not_found",
+            "Copy link button was not found. Open the published Reel share sheet and retry; no publication attempted.");
+    }
+
+    private static string XPathLiteral(string value)
+    {
+        if (!value.Contains('\'')) return "'" + value + "'";
+        if (!value.Contains('"')) return "\\\"" + value + "\\\"";
+        return "concat(" + string.Join(", \"'\", ", value.Split('\'').Select(part => "'" + part + "'")) + ")";
+    }
+
     private FacebookReelsPreparationResult Failure(string status, string message)
     {
         string? diagnosticPath = null;
