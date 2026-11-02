@@ -222,9 +222,22 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                             if (confirmedSamples >= 2)
                                                             {
                                                                 Console.Error.WriteLine("[facebook-reel] share.confirmed: matching Reel visible in feed");
+                                                                string? publicationUrl = null;
+                                                                try
+                                                                {
+                                                                    var linkResult = CopyVisibleReelLinkFromCurrentScreen(caption, cancellationToken);
+                                                                    publicationUrl = linkResult.PublicationUrl;
+                                                                    if (publicationUrl is null)
+                                                                        Console.Error.WriteLine($"[facebook-reel] link.warning: {linkResult.Status}: {linkResult.Message}");
+                                                                }
+                                                                catch (Exception linkEx)
+                                                                {
+                                                                    Console.Error.WriteLine($"[facebook-reel] link.warning: {linkEx.Message}");
+                                                                }
                                                                 return new FacebookReelsPreparationResult(
                                                                     "facebook_reel_published",
-                                                                    $"Matching Reel caption and Reel label observed in two consecutive XML snapshots. Diagnostics: {Path.GetFullPath(diagnosticDirectory)}.");
+                                                                    $"Matching Reel caption and Reel label observed in two consecutive XML snapshots. Diagnostics: {Path.GetFullPath(diagnosticDirectory)}.",
+                                                                    publicationUrl);
                                                             }
                                                         }
                                                         Console.Error.WriteLine($"[facebook-reel] share.xml: {xmlPath}");
@@ -283,6 +296,13 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
         _driver.ActivateApp(FacebookPackage);
         Console.Error.WriteLine("[facebook-reel] link.open: connected to existing Facebook screen");
 
+        return CopyVisibleReelLinkFromCurrentScreen(caption, cancellationToken);
+    }
+
+    // Reuse the active Appium session after publishing; do not reopen Facebook.
+    private FacebookReelsPreparationResult CopyVisibleReelLinkFromCurrentScreen(
+        string? caption, CancellationToken cancellationToken)
+    {
         // The user can leave the already published Reel visible in the feed.
         // If a caption was supplied, refuse to share an unrelated visible Reel.
         if (!string.IsNullOrWhiteSpace(caption))
