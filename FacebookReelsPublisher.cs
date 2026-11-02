@@ -30,7 +30,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
         var remotePath = $"{remoteDirectory}/fb_reel_{sha[..16]}_{Path.GetFileName(filePath)}";
         var adb = new AdbClient(options.AdbPath);
         var devices = adb.DevicesAsync(cancellationToken).GetAwaiter().GetResult();
-        if (!devices.Split('\\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\\tdevice", StringComparison.Ordinal)))
+        if (!devices.Split('\n').Any(line => line.Trim().StartsWith(options.DeviceId + "\\tdevice", StringComparison.Ordinal)))
             throw new InvalidOperationException("Configured Android device is not ready.");
         adb.ShellAsync(options.DeviceId, cancellationToken, "mkdir", "-p", remoteDirectory).GetAwaiter().GetResult();
         Console.Error.WriteLine("[facebook-reel] media.push: copying video to Android");
