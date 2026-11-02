@@ -159,9 +159,12 @@ try
 
     if (publishVideoFacebookReel)
     {
-        return await EmitAsync(new JobResult(taskId, "facebook_reel_not_implemented", false, false,
-            filePath, "Facebook Reels publication is not implemented yet; no publication attempted.",
-            null, startedAt, DateTimeOffset.UtcNow), resultFile, ExitFailure);
+        using var facebookReels = new FacebookReelsPublisher(options);
+        var preparation = facebookReels.OpenReelCreation(CancellationToken.None);
+        var opened = preparation.Status == "facebook_reel_creation_opened";
+        return await EmitAsync(new JobResult(taskId, preparation.Status, opened, false,
+            filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow),
+            resultFile, opened ? ExitSuccess : ExitFailure);
     }
 
     if (publishVideoFacebook)
@@ -506,7 +509,7 @@ static void PrintUsage()
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
       --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
-      --publish-video-facebook-reel  Facebook Reels placeholder; no publication attempted.
+      --publish-video-facebook-reel  Open Facebook Reel creation entry; no publication attempted.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
