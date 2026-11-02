@@ -166,9 +166,9 @@ try
     {
         using var facebookReels = new FacebookReelsPublisher(options);
         var copy = facebookReels.CopyVisibleReelLink(caption, CancellationToken.None);
-        var copied = copy.Status == "facebook_reel_link_copied";
+        var copied = copy.Status == "facebook_reel_link_read";
         return await EmitAsync(new JobResult(taskId, copy.Status, copied, false,
-            null, copy.Message, null, startedAt, DateTimeOffset.UtcNow),
+            null, copy.Message, null, startedAt, DateTimeOffset.UtcNow, copy.PublicationUrl),
             resultFile, copied ? ExitSuccess : ExitFailure);
     }
 
@@ -552,4 +552,5 @@ public sealed record JobResult(
     string Message,
     string? Sha256,
     DateTimeOffset StartedAtUtc,
-    DateTimeOffset CompletedAtUtc);
+    DateTimeOffset CompletedAtUtc,
+    string? PublicationUrl = null);
