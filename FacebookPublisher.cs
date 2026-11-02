@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Security.Cryptography;
 using OpenQA.Selenium;
 using OpenQA.Selenium.Appium;
@@ -49,6 +50,12 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         adb.ShellAsync(_options.DeviceId, cancellationToken, "am", "broadcast",
             "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}").GetAwaiter().GetResult();
         Console.Error.WriteLine("[facebook] media.scan: requested");
+        var deviceTimeOutput = adb.ShellAsync(_options.DeviceId, cancellationToken,
+            "date", "+%Y-%m-%d_%H:%M").GetAwaiter().GetResult().Trim();
+        if (!DateTime.TryParseExact(deviceTimeOutput, "yyyy-MM-dd_HH:mm",
+                CultureInfo.InvariantCulture, DateTimeStyles.None, out var deviceScanTime))
+            throw new InvalidOperationException($"Cannot read Android local time: {deviceTimeOutput}");
+        Console.Error.WriteLine($"[facebook] gallery.match: Android scan time={deviceScanTime:yyyy-MM-dd HH:mm}");
         Console.Error.WriteLine("[facebook] app.open: connecting to Facebook");
         Connect();
         _driver!.ActivateApp(FacebookPackage);
@@ -126,16 +133,43 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         }
         var videos = _driver.FindElements(By.XPath(
             "//*[@class='android.widget.Button' and starts-with(@content-desc,'Select video, ')]"))
-            .Where(element => element.Displayed)
-            .Select(element => element.GetAttribute("content-desc") ?? "")
+            .Where(element => element.Displayed && element.Enabled)
+            .Select(element => new { Element = element, Description = element.GetAttribute("content-desc") ?? "" })
             .ToArray();
         Console.Error.WriteLine($"[facebook] gallery.inspect: {videos.Length} visible video tiles");
         foreach (var video in videos)
-            Console.Error.WriteLine($"[facebook] gallery.video: {video}");
-        Console.Error.WriteLine($"[facebook] gallery.inspect: Android media name={remoteName}; no video selected");
+            Console.Error.WriteLine($"[facebook] gallery.video: {video.Description}");
+
+        // Facebook exposes media date and duration, but not the filename.
+        // Only select when exactly one video matches the recent Android scan time.
+        var candidates = videos.Where(video =>
+        {
+            if (!video.Description.StartsWith("Select video, ", StringComparison.Ordinal))
+                return false;
+            // Example: "Select video, Nov 02, 2026 09:14, 21 seconds"
+            var datePart = video.Description["Select video, ".Length..];
+            var lastComma = datePart.LastIndexOf(", ", StringComparison.Ordinal);
+            if (lastComma < 0) return false;
+            var timestamp = datePart[..lastComma];
+            if (!DateTime.TryParseExact(timestamp, "MMM dd, yyyy HH:mm",
+                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var mediaTime))
+                return false;
+            var difference = (mediaTime - deviceScanTime).Duration();
+            return difference <= TimeSpan.FromMinutes(3);
+        }).ToArray();
+
+        Console.Error.WriteLine($"[facebook] gallery.match: {candidates.Length} recent video candidates");
+        if (candidates.Length != 1)
+            throw new InvalidOperationException(
+                $"Facebook video selection is ambiguous: {candidates.Length} candidates. No video selected or published.");
+
+        Console.Error.WriteLine($"[facebook] gallery.select: tapping {candidates[0].Description}");
+        candidates[0].Element.Click();
+        Console.Error.WriteLine("[facebook] gallery.select: video tile tapped; publication not attempted");
         return Task.FromResult(new FacebookPreparationResult(
-            "facebook_gallery_inspected",
-            $"Android SHA-256 verified. Visible videos: {videos.Length}. No video selected or published. Android media: {remoteName}."));
+            "facebook_video_selected",
+            $"Tapped unique recent video candidate: {candidates[0].Description}. Filename identity is inferred from time, not verified. No video was published."));
+
     }
 
     private void Connect()
