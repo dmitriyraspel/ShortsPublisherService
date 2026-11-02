@@ -187,9 +187,6 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
 
                                                 share.Click();
                                                 Console.Error.WriteLine("[facebook-reel] share.tap: tapped Share now");
-                                                var diagnosticDirectory = Path.Combine("diagnostics", "facebook-reels",
-                                                    $"post_share_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}");
-                                                Directory.CreateDirectory(diagnosticDirectory);
                                                 var sampleCount = 0;
                                                 var diagnosticErrors = 0;
                                                 var confirmedSamples = 0;
@@ -198,12 +195,9 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                 for (var sample = 0; sample < 100; sample++)
                                                 {
                                                     cancellationToken.ThrowIfCancellationRequested();
-                                                    var xmlPath = Path.Combine(diagnosticDirectory,
-                                                        $"screen_{sample:000}_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
                                                     try
                                                     {
                                                         var pageXml = _driver.PageSource;
-                                                        File.WriteAllText(xmlPath, pageXml);
                                                         sampleCount++;
                                                         // A matching caption in the feed together with the Reel type
                                                         // is stronger evidence than the upload banner disappearing.
@@ -236,22 +230,22 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                                 }
                                                                 return new FacebookReelsPreparationResult(
                                                                     "facebook_reel_published",
-                                                                    $"Matching Reel caption and Reel label observed in two consecutive XML snapshots. Diagnostics: {Path.GetFullPath(diagnosticDirectory)}.",
+                                                                    "Matching Reel caption and Reel label observed in two consecutive UI checks.",
                                                                     publicationUrl);
                                                             }
                                                         }
-                                                        Console.Error.WriteLine($"[facebook-reel] share.xml: {xmlPath}");
+
                                                     }
                                                     catch (Exception ex)
                                                     {
                                                         diagnosticErrors++;
-                                                        Console.Error.WriteLine($"[facebook-reel] share.xml warning: {ex.Message}");
+                                                        Console.Error.WriteLine($"[facebook-reel] share.check warning: {ex.Message}");
                                                     }
                                                     if (sample < 99) Thread.Sleep(2000);
                                                 }
                                                 return new FacebookReelsPreparationResult(
                                                     "facebook_reel_share_submitted_unconfirmed",
-                                                    $"Share now tapped; publication NOT confirmed. Saved {sampleCount} XML snapshots (errors: {diagnosticErrors}) to {Path.GetFullPath(diagnosticDirectory)}.");
+                                                    $"Share now tapped; publication NOT confirmed after {sampleCount} UI checks (errors: {diagnosticErrors}).");
                                             }
                                             Thread.Sleep(500);
                                         }
@@ -315,15 +309,27 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                     "Requested caption is not visible. Open the published Reel in Facebook and retry; no publication attempted.");
         }
 
-        // Facebook renders the Share label as a non-clickable child of an unnamed button.
-        var share = _driver.FindElements(By.XPath(
-            "//*[(@text='Поделиться' or @content-desc='Поделиться' or @text='Share' or @content-desc='Share')]/ancestor-or-self::*[@clickable='true'][1]"))
-            .FirstOrDefault(e => e.Displayed && e.Enabled);
-        if (share is not null)
+        // A newly published Reel may not expose its action buttons immediately.
+        var shareDeadline = DateTime.UtcNow.AddSeconds(60);
+        var shareOpened = false;
+        while (DateTime.UtcNow < shareDeadline)
         {
-            share.Click();
-            Console.Error.WriteLine("[facebook-reel] link.share: opened Reel share sheet");
+            cancellationToken.ThrowIfCancellationRequested();
+            var share = _driver.FindElements(By.XPath(
+                "//*[(@text='Поделиться' or @content-desc='Поделиться' or @text='Share' or @content-desc='Share')]/ancestor-or-self::*[@clickable='true'][1]"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled);
+            if (share is not null)
+            {
+                share.Click();
+                shareOpened = true;
+                Console.Error.WriteLine("[facebook-reel] link.share: opened Reel share sheet");
+                break;
+            }
+            Thread.Sleep(1000);
         }
+        if (!shareOpened)
+            return new FacebookReelsPreparationResult("facebook_reel_share_action_not_found",
+                "Reel share action did not appear within 60 seconds.");
 
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
@@ -383,24 +389,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
     }
 
     private FacebookReelsPreparationResult Failure(string status, string message)
-    {
-        string? diagnosticPath = null;
-        try
-        {
-            var directory = Path.Combine("diagnostics", "facebook-reels");
-            Directory.CreateDirectory(directory);
-            diagnosticPath = Path.Combine(directory,
-                $"navigation_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
-            File.WriteAllText(diagnosticPath, _driver!.PageSource);
-            Console.Error.WriteLine($"[facebook-reel] diagnostics.xml: {diagnosticPath}");
-        }
-        catch (Exception ex)
-        {
-            Console.Error.WriteLine($"[facebook-reel] diagnostics.xml warning: {ex.Message}");
-        }
-        return new FacebookReelsPreparationResult(status,
-            $"{message} Diagnostic XML: {diagnosticPath ?? "<unavailable>"}");
-    }
+        => new(status, message);
 
     public void Dispose()
     {
