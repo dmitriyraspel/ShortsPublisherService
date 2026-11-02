@@ -25,6 +25,7 @@ bool tiktokGallery = false;
 bool publishVideoTikTok = false;
 bool publishVideoFacebook = false;
 bool publishVideoFacebookReel = false;
+bool copyFacebookReelLink = false;
 
 
 
@@ -76,6 +77,9 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-tiktok":
             publishVideoTikTok = true;
             break;
+        case "--copy-facebook-reel-link":
+            copyFacebookReelLink = true;
+            break;
         case "--publish-video-facebook-reel":
             publishVideoFacebookReel = true;
             break;
@@ -98,7 +102,8 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!publishVideoFacebook &&
+if (!copyFacebookReelLink &&
+    !publishVideoFacebook &&
     !publishVideoFacebookReel &&
     !tiktokGallery &&
     !tiktokCreate &&
@@ -155,6 +160,16 @@ try
         return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
             null, "TikTok launch command completed; no publication attempted.", null,
             startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (copyFacebookReelLink)
+    {
+        using var facebookReels = new FacebookReelsPublisher(options);
+        var copy = facebookReels.CopyVisibleReelLink(caption, CancellationToken.None);
+        var copied = copy.Status == "facebook_reel_link_copied";
+        return await EmitAsync(new JobResult(taskId, copy.Status, copied, false,
+            null, copy.Message, null, startedAt, DateTimeOffset.UtcNow),
+            resultFile, copied ? ExitSuccess : ExitFailure);
     }
 
     if (publishVideoFacebookReel)
@@ -510,7 +525,7 @@ static void PrintUsage()
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
       --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
-      --publish-video-facebook-reel  Open Facebook Reel creation entry; no publication attempted.
+      --publish-video-facebook-reel  Publish Facebook Reel and verify publication.\n      --copy-facebook-reel-link  Copy link of an existing visible Facebook Reel; does not publish.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
