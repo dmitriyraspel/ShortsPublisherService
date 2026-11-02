@@ -68,7 +68,7 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             profileTab = _driver.FindElements(By.XPath(
-                "//*[@class='android.app.ActionBar$Tab' and starts-with(@content-desc,'Profile, tab ')]"))
+                "//*[@class='android.app.ActionBar$Tab' and (starts-with(@content-desc,'Profile, tab ') or starts-with(@content-desc,'Профиль, вкладка '))]"))
                 .FirstOrDefault(element => element.Displayed && element.Enabled);
             if (profileTab is not null) break;
             Thread.Sleep(500);
@@ -87,7 +87,7 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             var selected = _driver.FindElements(By.XPath(
-                "//*[@class='android.app.ActionBar$Tab' and starts-with(@content-desc,'Profile, tab ') and @selected='true']"));
+                "//*[@class='android.app.ActionBar$Tab' and (starts-with(@content-desc,'Profile, tab ') or starts-with(@content-desc,'Профиль, вкладка ')) and @selected='true']"));
             if (selected.Count > 0)
             {
                 Console.Error.WriteLine("[facebook] profile.verify: Profile tab selected");
