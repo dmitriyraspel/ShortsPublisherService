@@ -6,8 +6,8 @@ using OpenQA.Selenium.Appium.Android;
 namespace ShortsPublisher;
 
 /// <summary>
-/// First stage of Facebook Reels automation: open Facebook and locate the Reel creation entry.
-/// Never taps Share/Publish. The video upload and publishing flow will be added separately.
+/// Facebook Reels automation with post-submit XML diagnostics.
+/// Submission is not treated as confirmed publication.
 /// </summary>
 public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposable
 {
@@ -162,9 +162,58 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                 {
                                                     Console.Error.WriteLine("[facebook-reel] caption.skip: no caption provided");
                                                 }
+                                                // Hide the software keyboard without leaving the Reel settings screen.
+                                                if (!string.IsNullOrWhiteSpace(caption))
+                                                {
+                                                    adb.ShellAsync(options.DeviceId, cancellationToken,
+                                                        "input", "keyevent", "4").GetAwaiter().GetResult();
+                                                    Console.Error.WriteLine("[facebook-reel] keyboard.hide: Android Back sent");
+                                                }
+                                                var shareDeadline = DateTime.UtcNow.AddSeconds(15);
+                                                AppiumElement? share = null;
+                                                while (DateTime.UtcNow < shareDeadline)
+                                                {
+                                                    cancellationToken.ThrowIfCancellationRequested();
+                                                    share = _driver.FindElements(By.XPath(
+                                                        "//*[@class='android.widget.Button' and @clickable='true' and (@content-desc='Поделиться сейчас' or @content-desc='Share now' or @text='Поделиться сейчас' or @text='Share now')]"))
+                                                        .FirstOrDefault(element => element.Displayed && element.Enabled);
+                                                    if (share is not null) break;
+                                                    Thread.Sleep(400);
+                                                }
+                                                if (share is null)
+                                                    return Failure("facebook_reel_share_button_not_found",
+                                                        "Caption processed but Share now button was not found. No publication attempted.");
+
+                                                share.Click();
+                                                Console.Error.WriteLine("[facebook-reel] share.tap: tapped Share now");
+                                                var diagnosticDirectory = Path.Combine("diagnostics", "facebook-reels",
+                                                    $"post_share_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}");
+                                                Directory.CreateDirectory(diagnosticDirectory);
+                                                var sampleCount = 0;
+                                                var diagnosticErrors = 0;
+                                                // Capture the changing UI for analysis. Do not infer success from
+                                                // the click or from the disappearance of the editor.
+                                                for (var sample = 0; sample < 45; sample++)
+                                                {
+                                                    cancellationToken.ThrowIfCancellationRequested();
+                                                    var xmlPath = Path.Combine(diagnosticDirectory,
+                                                        $"screen_{sample:000}_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
+                                                    try
+                                                    {
+                                                        File.WriteAllText(xmlPath, _driver.PageSource);
+                                                        sampleCount++;
+                                                        Console.Error.WriteLine($"[facebook-reel] share.xml: {xmlPath}");
+                                                    }
+                                                    catch (Exception ex)
+                                                    {
+                                                        diagnosticErrors++;
+                                                        Console.Error.WriteLine($"[facebook-reel] share.xml warning: {ex.Message}");
+                                                    }
+                                                    if (sample < 44) Thread.Sleep(2000);
+                                                }
                                                 return new FacebookReelsPreparationResult(
-                                                    "facebook_reel_caption_ready",
-                                                    "Reel publication settings opened; caption processed. No publication attempted.");
+                                                    "facebook_reel_share_submitted_unconfirmed",
+                                                    $"Share now tapped; publication NOT confirmed. Saved {sampleCount} XML snapshots (errors: {diagnosticErrors}) to {Path.GetFullPath(diagnosticDirectory)}.");
                                             }
                                             Thread.Sleep(500);
                                         }
