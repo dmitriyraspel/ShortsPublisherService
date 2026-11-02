@@ -175,8 +175,8 @@ try
     if (closeFacebook)
     {
         Console.Error.WriteLine("[facebook] app.close: stopping com.facebook.katana via ADB");
-        var adb = new AdbClient(options.AdbPath);
-        await adb.ShellAsync(options.DeviceId, CancellationToken.None,
+        var facebookAdb = new AdbClient(options.AdbPath);
+        await facebookAdb.ShellAsync(options.DeviceId, CancellationToken.None,
             "am", "force-stop", "com.facebook.katana");
         return await EmitAsync(new JobResult(taskId, "facebook_closed", true, false,
             null, "Facebook force-stop command completed; no publication attempted.", null,
