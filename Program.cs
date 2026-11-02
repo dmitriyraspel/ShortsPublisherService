@@ -157,7 +157,7 @@ try
         Console.Error.WriteLine("[facebook] publication.prepare: starting Facebook publishing scaffold");
         using var facebook = new FacebookPublisher(options);
         var preparation = await facebook.PreparePublicationAsync(filePath, caption, CancellationToken.None);
-        return await EmitAsync(new JobResult(taskId, preparation.Status, true, false,
+        return await EmitAsync(new JobResult(taskId, preparation.Status, true, preparation.Published,
             filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow),
             resultFile, ExitSuccess);
     }
