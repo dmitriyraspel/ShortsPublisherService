@@ -132,9 +132,25 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                             {
                                 first.Click();
                                 Console.Error.WriteLine("[facebook-reel] gallery.select: tapped newest video");
-                                return new FacebookReelsPreparationResult(
-                                    "facebook_reel_video_selected",
-                                    "Newest gallery video selected. No publication attempted.");
+                                var nextDeadline = DateTime.UtcNow.AddSeconds(20);
+                                while (DateTime.UtcNow < nextDeadline)
+                                {
+                                    cancellationToken.ThrowIfCancellationRequested();
+                                    var next = _driver.FindElements(By.XPath(
+                                        "//*[@clickable='true' and (@content-desc='Далее' or @content-desc='Next' or @text='Далее' or @text='Next')]"))
+                                        .FirstOrDefault(element => element.Displayed && element.Enabled);
+                                    if (next is not null)
+                                    {
+                                        next.Click();
+                                        Console.Error.WriteLine("[facebook-reel] editor.next: tapped Next");
+                                        return new FacebookReelsPreparationResult(
+                                            "facebook_reel_next_tapped",
+                                            "Tapped Next in Facebook Reel editor. No publication attempted.");
+                                    }
+                                    Thread.Sleep(400);
+                                }
+                                return Failure("facebook_reel_next_not_found",
+                                    "Video selected but Next button was not found. No publication attempted.");
                             }
                             Thread.Sleep(400);
                         }
