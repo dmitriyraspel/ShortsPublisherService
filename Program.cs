@@ -161,7 +161,7 @@ try
     {
         using var facebookReels = new FacebookReelsPublisher(options);
         var preparation = facebookReels.OpenReelCreation(filePath, CancellationToken.None);
-        var opened = preparation.Status == "facebook_reel_video_selected";
+        var opened = preparation.Status == "facebook_reel_next_tapped";
         return await EmitAsync(new JobResult(taskId, preparation.Status, opened, false,
             filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow),
             resultFile, opened ? ExitSuccess : ExitFailure);
