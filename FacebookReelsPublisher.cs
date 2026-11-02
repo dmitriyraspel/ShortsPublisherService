@@ -295,8 +295,9 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                     "Requested caption is not visible. Open the published Reel in Facebook and retry; no publication attempted.");
         }
 
+        // Facebook renders the Share label as a non-clickable child of an unnamed button.
         var share = _driver.FindElements(By.XPath(
-            "//*[@clickable='true' and (@content-desc='Поделиться' or @content-desc='Share' or @text='Поделиться' or @text='Share')]"))
+            "//*[(@text='Поделиться' or @content-desc='Поделиться' or @text='Share' or @content-desc='Share')]/ancestor-or-self::*[@clickable='true'][1]"))
             .FirstOrDefault(e => e.Displayed && e.Enabled);
         if (share is not null)
         {
