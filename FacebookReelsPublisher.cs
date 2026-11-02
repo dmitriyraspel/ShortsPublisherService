@@ -316,8 +316,29 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
             {
                 copy.Click();
                 Console.Error.WriteLine("[facebook-reel] link.copy: tapped Copy link");
-                return new FacebookReelsPreparationResult("facebook_reel_link_copied",
-                    "Tapped Copy link for an existing Reel. URL is in Android clipboard; no publication attempted.");
+                try
+                {
+                    Thread.Sleep(500);
+                    var clipboard = _driver.GetClipboardText()?.Trim();
+                    if (Uri.TryCreate(clipboard, UriKind.Absolute, out var uri) &&
+                        (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) &&
+                        (uri.Host.Equals("facebook.com", StringComparison.OrdinalIgnoreCase) ||
+                         uri.Host.EndsWith(".facebook.com", StringComparison.OrdinalIgnoreCase) ||
+                         uri.Host.Equals("fb.watch", StringComparison.OrdinalIgnoreCase)))
+                    {
+                        Console.Error.WriteLine("[facebook-reel] link.clipboard: Facebook URL read");
+                        return new FacebookReelsPreparationResult("facebook_reel_link_read",
+                            "Copied existing Reel URL from Android clipboard; no publication attempted.", clipboard);
+                    }
+                    return new FacebookReelsPreparationResult("facebook_reel_clipboard_invalid",
+                        "Copy link tapped, but Android clipboard did not contain a recognized Facebook URL.");
+                }
+                catch (Exception ex)
+                {
+                    Console.Error.WriteLine($"[facebook-reel] link.clipboard warning: {ex.Message}");
+                    return new FacebookReelsPreparationResult("facebook_reel_clipboard_unavailable",
+                        "Copy link tapped, but Appium could not read the Android clipboard: " + ex.Message);
+                }
             }
             Thread.Sleep(400);
         }
@@ -359,4 +380,4 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
     }
 }
 
-public sealed record FacebookReelsPreparationResult(string Status, string Message);
+public sealed record FacebookReelsPreparationResult(string Status, string Message, string? PublicationUrl = null);
