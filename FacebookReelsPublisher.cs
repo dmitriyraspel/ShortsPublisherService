@@ -234,12 +234,9 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                                 {
                                                                     _ = adb.ShellAsync(options.DeviceId, CancellationToken.None,
                                                                         "rm", "-f", remotePath).GetAwaiter().GetResult();
-                                                                    // Verify deletion via a listing because shell exit codes are not exposed here.
-                                                                    var listing = adb.ShellAsync(options.DeviceId, CancellationToken.None,
-                                                                        "ls", "-d", remotePath).GetAwaiter().GetResult();
-                                                                    if (!string.IsNullOrWhiteSpace(listing) &&
-                                                                        !listing.Contains("No such file", StringComparison.OrdinalIgnoreCase))
-                                                                        throw new InvalidOperationException("Remote video still exists: " + listing.Trim());
+                                                                    // rm -f succeeds for an already absent file too.
+                                                                    // AdbClient throws on a nonzero exit code, so a failing
+                                                                    // ls would incorrectly treat successful deletion as failure.
                                                                     Console.Error.WriteLine("[facebook-reel] media.cleanup: removed uploaded Android video");
                                                                     adb.ShellAsync(options.DeviceId, CancellationToken.None,
                                                                         "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
