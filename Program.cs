@@ -23,6 +23,10 @@ bool openTikTok = false;
 bool tiktokCreate = false;
 bool tiktokGallery = false;
 bool publishVideoTikTok = false;
+bool publishVideoFacebook = false;
+bool publishVideoFacebookReel = false;
+bool copyFacebookReelLink = false;
+bool facebookReelPostOptions = false;
 
 
 
@@ -74,6 +78,18 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-tiktok":
             publishVideoTikTok = true;
             break;
+        case "--facebook-reel-post-options":
+            facebookReelPostOptions = true;
+            break;
+        case "--copy-facebook-reel-link":
+            copyFacebookReelLink = true;
+            break;
+        case "--publish-video-facebook-reel":
+            publishVideoFacebookReel = true;
+            break;
+        case "--publish-video-facebook-stories":
+            publishVideoFacebook = true;
+            break;
         case "--diagnose-ui":
             diagnoseUi = true;
             break;
@@ -90,7 +106,11 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!tiktokGallery &&
+if (!facebookReelPostOptions &&
+    !copyFacebookReelLink &&
+    !publishVideoFacebook &&
+    !publishVideoFacebookReel &&
+    !tiktokGallery &&
     !tiktokCreate &&
     !openTikTok &&
     !openInstagram &&
@@ -145,6 +165,58 @@ try
         return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
             null, "TikTok launch command completed; no publication attempted.", null,
             startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (facebookReelPostOptions)
+    {
+        using var facebookReels = new FacebookReelsPublisher(options);
+        var optionsResult = facebookReels.OpenVisiblePostOptions(caption, CancellationToken.None);
+        var opened = optionsResult.Status == "facebook_reel_options_link_read";
+        return await EmitAsync(new JobResult(taskId, optionsResult.Status, opened, false,
+            null, optionsResult.Message, null, startedAt, DateTimeOffset.UtcNow, optionsResult.PublicationUrl),
+            resultFile, opened ? ExitSuccess : ExitFailure);
+    }
+
+    if (copyFacebookReelLink)
+    {
+        using var facebookReels = new FacebookReelsPublisher(options);
+        var copy = facebookReels.CopyVisibleReelLink(caption, CancellationToken.None);
+        var copied = copy.Status == "facebook_reel_link_read";
+        return await EmitAsync(new JobResult(taskId, copy.Status, copied, false,
+            null, copy.Message, null, startedAt, DateTimeOffset.UtcNow, copy.PublicationUrl),
+            resultFile, copied ? ExitSuccess : ExitFailure);
+    }
+
+    if (publishVideoFacebookReel)
+    {
+        if (string.IsNullOrWhiteSpace(caption))
+            return await EmitAsync(Failure(taskId, "invalid_arguments",
+                "--publish-video-facebook-reel requires a non-empty --caption to verify publication.", startedAt),
+                resultFile, ExitBadArguments);
+
+        using var facebookReels = new FacebookReelsPublisher(options);
+        var preparation = facebookReels.OpenReelCreation(filePath, caption, CancellationToken.None);
+        var published = preparation.Status == "facebook_reel_published";
+        // A submitted-but-unconfirmed Reel may already be live. Do not report
+        // success or trigger an automatic retry without checking Facebook first.
+        var message = preparation.Status == "facebook_reel_share_submitted_unconfirmed"
+            ? preparation.Message + " Publication may have succeeded; check Facebook before retrying to avoid duplicates."
+            : preparation.Message;
+        return await EmitAsync(new JobResult(taskId, preparation.Status, published, published,
+            filePath, message, null, startedAt, DateTimeOffset.UtcNow, preparation.PublicationUrl),
+            resultFile, published ? ExitSuccess : ExitFailure);
+    }
+
+    if (publishVideoFacebook)
+    {
+        Console.Error.WriteLine("[facebook] publication.prepare: starting Facebook publishing scaffold");
+        using var facebook = new FacebookPublisher(options);
+        var preparation = await facebook.PreparePublicationAsync(filePath, caption, CancellationToken.None);
+        if (!preparation.Published)
+            Console.Error.WriteLine("[facebook] publication.unverified: do not retry automatically without checking Facebook");
+        return await EmitAsync(new JobResult(taskId, preparation.Status, preparation.Published, preparation.Published,
+            filePath, preparation.Message, preparation.Sha256, startedAt, DateTimeOffset.UtcNow),
+            resultFile, preparation.Published ? ExitSuccess : ExitFailure);
     }
 
     if (publishVideoTikTok)
@@ -476,6 +548,8 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
+      --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
+      --publish-video-facebook-reel  Publish Facebook Reel and verify publication.\n      --copy-facebook-reel-link  Copy link of an existing visible Facebook Reel; does not publish.\n      --facebook-reel-post-options  Open three-dot menu of an existing visible Facebook post.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
@@ -502,4 +576,5 @@ public sealed record JobResult(
     string Message,
     string? Sha256,
     DateTimeOffset StartedAtUtc,
-    DateTimeOffset CompletedAtUtc);
+    DateTimeOffset CompletedAtUtc,
+    string? PublicationUrl = null);
