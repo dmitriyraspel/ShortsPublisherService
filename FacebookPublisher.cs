@@ -289,10 +289,10 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         {
             var avatar = _driver!.FindElements(By.XPath(
                 "//*[@content-desc='Фото профиля с непросмотренными историями' or @content-desc='Profile picture with unseen stories']"))
-                .FirstOrDefault(element => element.Displayed && element.Enabled && element.GetAttribute("clickable") == "true");
+                .FirstOrDefault(element => element.Displayed && element.Enabled);
             if (avatar is null)
             {
-                Console.Error.WriteLine("[facebook] story.reset: clickable profile photo not found");
+                Console.Error.WriteLine("[facebook] story.reset: profile photo indicator element not found");
                 return false;
             }
 
@@ -329,7 +329,7 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
                     // Still unseen: reopen the viewer if it closed early.
                     var photo = _driver.FindElements(By.XPath(
                         "//*[@content-desc='Фото профиля с непросмотренными историями' or @content-desc='Profile picture with unseen stories']"))
-                        .FirstOrDefault(element => element.Displayed && element.Enabled && element.GetAttribute("clickable") == "true");
+                        .FirstOrDefault(element => element.Displayed && element.Enabled);
                     if (photo is null) break;
                     photo.Click();
                     var action = _driver.FindElements(By.XPath(
