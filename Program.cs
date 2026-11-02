@@ -27,6 +27,7 @@ bool publishVideoFacebook = false;
 bool publishVideoFacebookReel = false;
 bool copyFacebookReelLink = false;
 bool facebookReelPostOptions = false;
+bool closeFacebook = false;
 
 
 
@@ -78,6 +79,9 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-tiktok":
             publishVideoTikTok = true;
             break;
+        case "--close-facebook":
+            closeFacebook = true;
+            break;
         case "--facebook-reel-post-options":
             facebookReelPostOptions = true;
             break;
@@ -106,7 +110,8 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!facebookReelPostOptions &&
+if (!closeFacebook &&
+    !facebookReelPostOptions &&
     !copyFacebookReelLink &&
     !publishVideoFacebook &&
     !publishVideoFacebookReel &&
@@ -164,6 +169,17 @@ try
         await new TikTokPublisher(options).OpenTikTokAsync();
         return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
             null, "TikTok launch command completed; no publication attempted.", null,
+            startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (closeFacebook)
+    {
+        Console.Error.WriteLine("[facebook] app.close: stopping com.facebook.katana via ADB");
+        var adb = new AdbClient(options.AdbPath);
+        await adb.ShellAsync(options.DeviceId, CancellationToken.None,
+            "am", "force-stop", "com.facebook.katana");
+        return await EmitAsync(new JobResult(taskId, "facebook_closed", true, false,
+            null, "Facebook force-stop command completed; no publication attempted.", null,
             startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
     }
 
@@ -548,7 +564,7 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
-      --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
+      --close-facebook  Stop Facebook Android app via ADB (no publication).\n      --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
       --publish-video-facebook-reel  Publish Facebook Reel and verify publication.\n      --copy-facebook-reel-link  Copy link of an existing visible Facebook Reel; does not publish.\n      --facebook-reel-post-options  Open three-dot menu of an existing visible Facebook post.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
