@@ -412,8 +412,25 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
 
         optionsButton.Click();
         Console.Error.WriteLine("[facebook-reel] options.open: tapped post three-dot menu");
-        return new FacebookReelsPreparationResult("facebook_reel_options_opened",
-            "Opened options for an existing visible post. No publication attempted.");
+
+        var moreDeadline = DateTime.UtcNow.AddSeconds(10);
+        while (DateTime.UtcNow < moreDeadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            var more = _driver.FindElements(By.XPath(
+                "//*[@clickable='true' and (@content-desc='Другие параметры ' or @content-desc='Другие параметры' or @text='Другие параметры' or @content-desc='More options')]"))
+                .FirstOrDefault(e => e.Displayed && e.Enabled);
+            if (more is not null)
+            {
+                more.Click();
+                Console.Error.WriteLine("[facebook-reel] options.more: tapped More options");
+                return new FacebookReelsPreparationResult("facebook_reel_more_options_opened",
+                    "Opened More options for an existing post. No publication attempted.");
+            }
+            Thread.Sleep(300);
+        }
+        return new FacebookReelsPreparationResult("facebook_reel_more_options_not_found",
+            "Post options opened, but More options button was not found.");
     }
 
     private static string XPathLiteral(string value)
