@@ -228,6 +228,30 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                                 {
                                                                     Console.Error.WriteLine($"[facebook-reel] link.warning: {linkEx.Message}");
                                                                 }
+                                                                // The published Reel is already on Facebook. Cleanup must not
+                                                                // turn a successful publication into a failed job.
+                                                                try
+                                                                {
+                                                                    var deleteOutput = adb.ShellAsync(options.DeviceId, CancellationToken.None,
+                                                                        "rm", "-f", remotePath).GetAwaiter().GetResult();
+                                                                    var existsOutput = adb.ShellAsync(options.DeviceId, CancellationToken.None,
+                                                                        "test", "-e", remotePath).GetAwaiter().GetResult();
+                                                                    // AdbClient may not expose exit codes; check existence explicitly below.
+                                                                    var listing = adb.ShellAsync(options.DeviceId, CancellationToken.None,
+                                                                        "ls", "-d", remotePath).GetAwaiter().GetResult();
+                                                                    if (!string.IsNullOrWhiteSpace(listing) &&
+                                                                        !listing.Contains("No such file", StringComparison.OrdinalIgnoreCase))
+                                                                        throw new InvalidOperationException("Remote video still exists: " + listing.Trim());
+                                                                    Console.Error.WriteLine("[facebook-reel] media.cleanup: removed uploaded Android video");
+                                                                    adb.ShellAsync(options.DeviceId, CancellationToken.None,
+                                                                        "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
+                                                                        "-d", $"file://{remotePath}").GetAwaiter().GetResult();
+                                                                    Console.Error.WriteLine("[facebook-reel] media.cleanup.scan: requested gallery refresh");
+                                                                }
+                                                                catch (Exception cleanupEx)
+                                                                {
+                                                                    Console.Error.WriteLine($"[facebook-reel] media.cleanup.warning: {cleanupEx.Message}");
+                                                                }
                                                                 return new FacebookReelsPreparationResult(
                                                                     "facebook_reel_published",
                                                                     "Matching Reel caption and Reel label observed in two consecutive UI checks.",
