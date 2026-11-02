@@ -212,13 +212,10 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
 
         Console.Error.WriteLine("[facebook] share.tap: tapping Share / Поделиться");
         shareButton.Click();
-        Console.Error.WriteLine("[facebook] share.tap: tapped; capturing post-share UI XML");
-        var diagnosticDirectory = Path.Combine("diagnostics", "facebook",
-            DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture));
-        Directory.CreateDirectory(diagnosticDirectory);
+        Console.Error.WriteLine("[facebook] share.tap: tapped; observing publication confirmation");
         var observation = System.Diagnostics.Stopwatch.StartNew();
         var nextSnapshot = TimeSpan.FromSeconds(2);
-        var snapshot = 0;
+        string? lastXml = null;
         var indicatorSeen = false;
         while (observation.Elapsed < TimeSpan.FromSeconds(200))
         {
@@ -229,11 +226,10 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
                 continue;
             }
 
-            snapshot++;
-            var diagnosticFile = Path.Combine(diagnosticDirectory, $"screen_{snapshot:000}.xml");
             try
             {
                 var xml = _driver.PageSource;
+                lastXml = xml;
                 // Facebook occasionally displays a camera-shortcut prompt after Share.
                 // Dismiss only this specific dialog; otherwise it hides the profile
                 // and prevents the story indicator from being observed.
@@ -249,22 +245,21 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
                         dismiss.Click();
                     }
                 }
-                File.WriteAllText(diagnosticFile, xml);
-                Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
                 indicatorSeen = xml.Contains(storyIndicator, StringComparison.OrdinalIgnoreCase)
                     || xml.Contains(englishStoryIndicator, StringComparison.OrdinalIgnoreCase);
                 if (indicatorSeen && !hadActiveStory)
                 {
                     Console.Error.WriteLine($"[facebook] share.confirmed: new story indicator appeared after {observation.Elapsed.TotalSeconds:F1}s");
+                    CleanupPublishedAndroidMedia(adb, remoteDirectory, remoteName, remotePath, sha);
                     return Task.FromResult(new FacebookPreparationResult(
-                        "published", "Facebook profile acquired the unseen-stories indicator after Share.", true));
+                        "published", "Facebook profile acquired the unseen-stories indicator after Share.", true, sha));
                 }
                 if (indicatorSeen && hadActiveStory)
                     Console.Error.WriteLine("[facebook] share.verify: story indicator existed before Share; cannot confirm new publication");
             }
             catch (Exception ex) when (ex is WebDriverException or IOException or UnauthorizedAccessException)
             {
-                Console.Error.WriteLine($"[facebook] diagnostics.xml: capture {snapshot} failed: {ex.Message}");
+                Console.Error.WriteLine($"[facebook] share.verify: UI inspection failed: {ex.Message}");
             }
 
             nextSnapshot += TimeSpan.FromSeconds(2);
@@ -272,12 +267,54 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
                 nextSnapshot += TimeSpan.FromSeconds(2);
         }
         Console.Error.WriteLine($"[facebook] share.unconfirmed: no new story indicator after {observation.Elapsed.TotalSeconds:F1}s");
+        SaveFailureDiagnostic(lastXml);
         return Task.FromResult(new FacebookPreparationResult(
             "facebook_share_unconfirmed",
             hadActiveStory
                 ? "Story indicator already existed before Share; new publication cannot be confirmed by this signal."
                 : "Story indicator did not appear within 200 seconds after Share.",
-            false));
+            false, sha));
+    }
+
+    private void CleanupPublishedAndroidMedia(
+        AdbClient adb, string remoteDirectory, string remoteName, string remotePath, string sha)
+    {
+        // A cleanup failure must never turn a confirmed post into a retryable failure.
+        try
+        {
+            if (!remoteName.StartsWith($"fb_{sha[..16]}_", StringComparison.Ordinal)
+                || !remotePath.StartsWith(remoteDirectory + "/", StringComparison.Ordinal))
+                throw new InvalidOperationException("Unsafe Facebook Android media cleanup path.");
+            Console.Error.WriteLine("[facebook] cleanup.media: removing uploaded Android copy");
+            adb.ShellAsync(_options.DeviceId, CancellationToken.None, "rm", "--", remotePath)
+                .GetAwaiter().GetResult();
+            adb.ShellAsync(_options.DeviceId, CancellationToken.None, "am", "broadcast",
+                "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}")
+                .GetAwaiter().GetResult();
+            Console.Error.WriteLine("[facebook] cleanup.media: completed");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[facebook] cleanup.media warning: {ex.Message}");
+        }
+    }
+
+    private static void SaveFailureDiagnostic(string? xml)
+    {
+        if (string.IsNullOrWhiteSpace(xml)) return;
+        try
+        {
+            var directory = Path.Combine("diagnostics", "facebook");
+            Directory.CreateDirectory(directory);
+            var path = Path.Combine(directory,
+                $"unconfirmed_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
+            File.WriteAllText(path, xml);
+            Console.Error.WriteLine($"[facebook] diagnostics.xml: saved last unconfirmed screen to {path}");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[facebook] diagnostics.xml warning: {ex.Message}");
+        }
     }
 
     private bool EnsureProfileAfterStoryReset(CancellationToken cancellationToken)
@@ -419,4 +456,4 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
     }
 }
 
-public sealed record FacebookPreparationResult(string Status, string Message, bool Published = false);
+public sealed record FacebookPreparationResult(string Status, string Message, bool Published = false, string? Sha256 = null);
