@@ -23,6 +23,7 @@ bool openTikTok = false;
 bool tiktokCreate = false;
 bool tiktokGallery = false;
 bool publishVideoTikTok = false;
+bool publishVideoFacebook = false;
 
 
 
@@ -74,6 +75,9 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-tiktok":
             publishVideoTikTok = true;
             break;
+        case "--publish-video-facebook-stories":
+            publishVideoFacebook = true;
+            break;
         case "--diagnose-ui":
             diagnoseUi = true;
             break;
@@ -90,7 +94,8 @@ for (var i = 0; i < args.Length; i++)
     }
 }
 
-if (!tiktokGallery &&
+if (!publishVideoFacebook &&
+    !tiktokGallery &&
     !tiktokCreate &&
     !openTikTok &&
     !openInstagram &&
@@ -145,6 +150,18 @@ try
         return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
             null, "TikTok launch command completed; no publication attempted.", null,
             startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (publishVideoFacebook)
+    {
+        Console.Error.WriteLine("[facebook] publication.prepare: starting Facebook publishing scaffold");
+        using var facebook = new FacebookPublisher(options);
+        var preparation = await facebook.PreparePublicationAsync(filePath, caption, CancellationToken.None);
+        if (!preparation.Published)
+            Console.Error.WriteLine("[facebook] publication.unverified: do not retry automatically without checking Facebook");
+        return await EmitAsync(new JobResult(taskId, preparation.Status, preparation.Published, preparation.Published,
+            filePath, preparation.Message, preparation.Sha256, startedAt, DateTimeOffset.UtcNow),
+            resultFile, preparation.Published ? ExitSuccess : ExitFailure);
     }
 
     if (publishVideoTikTok)
@@ -476,6 +493,7 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
+      --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
