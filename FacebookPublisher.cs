@@ -185,10 +185,31 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
 
         Console.Error.WriteLine("[facebook] share.tap: tapping Share / Поделиться");
         shareButton.Click();
-        Console.Error.WriteLine("[facebook] share.tap: tapped; publication confirmation not verified");
+        Console.Error.WriteLine("[facebook] share.tap: tapped; capturing post-share UI XML");
+        var diagnosticDirectory = Path.Combine("diagnostics", "facebook",
+            DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture));
+        Directory.CreateDirectory(diagnosticDirectory);
+        const int snapshotCount = 15; // 30 seconds, one capture every 2 seconds.
+        for (var snapshot = 1; snapshot <= snapshotCount; snapshot++)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            Thread.Sleep(2000);
+            cancellationToken.ThrowIfCancellationRequested();
+            var diagnosticFile = Path.Combine(diagnosticDirectory, $"screen_{snapshot:000}.xml");
+            try
+            {
+                File.WriteAllText(diagnosticFile, _driver.PageSource);
+                Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
+            }
+            catch (Exception ex) when (ex is WebDriverException or IOException or UnauthorizedAccessException)
+            {
+                Console.Error.WriteLine($"[facebook] diagnostics.xml: capture {snapshot} failed: {ex.Message}");
+            }
+        }
+        Console.Error.WriteLine("[facebook] share.tap: diagnostics completed; publication confirmation not verified");
         return Task.FromResult(new FacebookPreparationResult(
             "facebook_share_tapped",
-            "Tapped Facebook story Share button. Submission was initiated, but publication was not independently verified."));
+            "Tapped Facebook story Share button. Submission was initiated; captured 15 post-share XML snapshots at 2-second intervals in diagnostics/facebook. Publication was not independently verified."));
 
 
 
