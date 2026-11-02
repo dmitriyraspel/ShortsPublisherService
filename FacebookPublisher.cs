@@ -189,27 +189,54 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         var diagnosticDirectory = Path.Combine("diagnostics", "facebook",
             DateTimeOffset.UtcNow.ToString("yyyyMMdd_HHmmss_fff", CultureInfo.InvariantCulture));
         Directory.CreateDirectory(diagnosticDirectory);
-        const int snapshotCount = 15; // 30 seconds, one capture every 2 seconds.
-        for (var snapshot = 1; snapshot <= snapshotCount; snapshot++)
+        var observation = System.Diagnostics.Stopwatch.StartNew();
+        var nextSnapshot = TimeSpan.FromSeconds(2);
+        var snapshot = 0;
+        var notificationSeen = false;
+        while (observation.Elapsed < TimeSpan.FromSeconds(200))
         {
             cancellationToken.ThrowIfCancellationRequested();
-            Thread.Sleep(2000);
-            cancellationToken.ThrowIfCancellationRequested();
-            var diagnosticFile = Path.Combine(diagnosticDirectory, $"screen_{snapshot:000}.xml");
+            // Lightweight UI checks between full XML dumps help catch short-lived toasts.
             try
             {
-                File.WriteAllText(diagnosticFile, _driver.PageSource);
-                Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
+                var notice = _driver.FindElements(By.XPath(
+                    "//*[contains(@text,'История опубликована') or contains(@content-desc,'История опубликована') or " +
+                    "contains(@text,'Story shared') or contains(@content-desc,'Story shared')]"));
+                if (notice.Count > 0 && !notificationSeen)
+                {
+                    notificationSeen = true;
+                    Console.Error.WriteLine($"[facebook] diagnostics.notice: publication message observed at {observation.Elapsed.TotalSeconds:F1}s");
+                }
             }
-            catch (Exception ex) when (ex is WebDriverException or IOException or UnauthorizedAccessException)
+            catch (WebDriverException ex)
             {
-                Console.Error.WriteLine($"[facebook] diagnostics.xml: capture {snapshot} failed: {ex.Message}");
+                Console.Error.WriteLine($"[facebook] diagnostics.notice: UI check failed: {ex.Message}");
             }
+
+            if (observation.Elapsed >= nextSnapshot)
+            {
+                snapshot++;
+                var diagnosticFile = Path.Combine(diagnosticDirectory, $"screen_{snapshot:000}.xml");
+                try
+                {
+                    File.WriteAllText(diagnosticFile, _driver.PageSource);
+                    Console.Error.WriteLine($"[facebook] diagnostics.xml: {diagnosticFile}");
+                }
+                catch (Exception ex) when (ex is WebDriverException or IOException or UnauthorizedAccessException)
+                {
+                    Console.Error.WriteLine($"[facebook] diagnostics.xml: capture {snapshot} failed: {ex.Message}");
+                }
+                nextSnapshot += TimeSpan.FromSeconds(2);
+                // Skip missed intervals rather than attempting a burst of stale captures.
+                while (nextSnapshot <= observation.Elapsed)
+                    nextSnapshot += TimeSpan.FromSeconds(2);
+            }
+            Thread.Sleep(250);
         }
-        Console.Error.WriteLine("[facebook] share.tap: diagnostics completed; publication confirmation not verified");
+        Console.Error.WriteLine($"[facebook] share.tap: diagnostics completed after {observation.Elapsed.TotalSeconds:F1}s; noticeSeen={notificationSeen}; publication confirmation not verified");
         return Task.FromResult(new FacebookPreparationResult(
             "facebook_share_tapped",
-            "Tapped Facebook story Share button. Submission was initiated; captured 15 post-share XML snapshots at 2-second intervals in diagnostics/facebook. Publication was not independently verified."));
+            "Tapped Facebook story Share button. Submission was initiated; observed post-share UI for 200 seconds, saving XML approximately every 2 seconds in diagnostics/facebook. Publication was not independently verified."));
 
 
 
