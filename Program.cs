@@ -213,6 +213,22 @@ try
         using var facebookReels = new FacebookReelsPublisher(options);
         var preparation = facebookReels.OpenReelCreation(filePath, caption, CancellationToken.None);
         var published = preparation.Status == "facebook_reel_published";
+        // Stop Facebook only after confirmed publication, link retrieval and media cleanup.
+        // Failure to stop the app must not turn a published Reel into a failed job.
+        if (published)
+        {
+            try
+            {
+                var facebookCloseAdb = new AdbClient(options.AdbPath);
+                await facebookCloseAdb.ShellAsync(options.DeviceId, CancellationToken.None,
+                    "am", "force-stop", "com.facebook.katana");
+                Console.Error.WriteLine("[facebook-reel] app.close: Facebook force-stopped");
+            }
+            catch (Exception closeEx)
+            {
+                Console.Error.WriteLine($"[facebook-reel] app.close warning: {closeEx.Message}");
+            }
+        }
         // A submitted-but-unconfirmed Reel may already be live. Do not report
         // success or trigger an automatic retry without checking Facebook first.
         var message = preparation.Status == "facebook_reel_share_submitted_unconfirmed"
