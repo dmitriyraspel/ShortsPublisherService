@@ -219,7 +219,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                                 string? publicationUrl = null;
                                                                 try
                                                                 {
-                                                                    var linkResult = CopyVisibleReelLinkFromCurrentScreen(caption, cancellationToken);
+                                                                    var linkResult = CopyVisiblePostOptionsLinkFromCurrentScreen(caption, cancellationToken);
                                                                     publicationUrl = linkResult.PublicationUrl;
                                                                     if (publicationUrl is null)
                                                                         Console.Error.WriteLine($"[facebook-reel] link.warning: {linkResult.Status}: {linkResult.Message}");
@@ -396,6 +396,13 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
         _driver = new AndroidDriver(new Uri(options.AppiumServer), caps, TimeSpan.FromMinutes(3));
         _driver.ActivateApp(FacebookPackage);
 
+        return CopyVisiblePostOptionsLinkFromCurrentScreen(caption, cancellationToken);
+    }
+
+    private FacebookReelsPreparationResult CopyVisiblePostOptionsLinkFromCurrentScreen(
+        string? caption, CancellationToken cancellationToken)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
         if (!string.IsNullOrWhiteSpace(caption) &&
             !_driver.FindElements(By.XPath(
                 "//*[@text=" + XPathLiteral(caption) + " or @content-desc=" + XPathLiteral(caption) + "]"))
