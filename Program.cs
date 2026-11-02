@@ -189,13 +189,22 @@ try
 
     if (publishVideoFacebookReel)
     {
+        if (string.IsNullOrWhiteSpace(caption))
+            return await EmitAsync(Failure(taskId, "invalid_arguments",
+                "--publish-video-facebook-reel requires a non-empty --caption to verify publication.", startedAt),
+                resultFile, ExitBadArguments);
+
         using var facebookReels = new FacebookReelsPublisher(options);
         var preparation = facebookReels.OpenReelCreation(filePath, caption, CancellationToken.None);
         var published = preparation.Status == "facebook_reel_published";
-        var submitted = published || preparation.Status == "facebook_reel_share_submitted_unconfirmed";
-        return await EmitAsync(new JobResult(taskId, preparation.Status, submitted, published,
-            filePath, preparation.Message, null, startedAt, DateTimeOffset.UtcNow, preparation.PublicationUrl),
-            resultFile, submitted ? ExitSuccess : ExitFailure);
+        // A submitted-but-unconfirmed Reel may already be live. Do not report
+        // success or trigger an automatic retry without checking Facebook first.
+        var message = preparation.Status == "facebook_reel_share_submitted_unconfirmed"
+            ? preparation.Message + " Publication may have succeeded; check Facebook before retrying to avoid duplicates."
+            : preparation.Message;
+        return await EmitAsync(new JobResult(taskId, preparation.Status, published, published,
+            filePath, message, null, startedAt, DateTimeOffset.UtcNow, preparation.PublicationUrl),
+            resultFile, published ? ExitSuccess : ExitFailure);
     }
 
     if (publishVideoFacebook)
