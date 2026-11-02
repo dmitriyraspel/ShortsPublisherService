@@ -29,17 +29,34 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
         _driver.ActivateApp(FacebookPackage);
         Console.Error.WriteLine("[facebook-reel] app.open: ready");
 
-        // On the Reels tab, Facebook exposes a generic Create button first.
-        // Only tap that explicitly labelled button; then inspect the menu for Reel.
-        var create = _driver.FindElements(By.XPath(
-            "//*[@clickable='true' and (starts-with(@content-desc,'Создать:') or starts-with(@content-desc,'Create:'))]"))
+        // Facebook can reopen on Reels or a profile. Navigate to Home first:
+        // the Home header's Create button is more reliable than the Reels header.
+        var home = _driver.FindElements(By.XPath(
+            "//*[@clickable='true' and (starts-with(@content-desc,'Главная, вкладка') or starts-with(@content-desc,'Home, tab'))]"))
             .FirstOrDefault(element => element.Displayed && element.Enabled);
+        if (home is not null)
+        {
+            home.Click();
+            Console.Error.WriteLine("[facebook-reel] navigation.home: tapped Home tab");
+        }
+
+        var createDeadline = DateTime.UtcNow.AddSeconds(15);
+        AppiumElement? create = null;
+        while (DateTime.UtcNow < createDeadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            create = _driver.FindElements(By.XPath(
+                "//*[@clickable='true' and (starts-with(@content-desc,'Создать:') or starts-with(@content-desc,'Create,'))]"))
+                .FirstOrDefault(element => element.Displayed && element.Enabled);
+            if (create is not null) break;
+            Thread.Sleep(400);
+        }
         if (create is null)
             return Failure("facebook_reel_create_button_not_found",
-                "Facebook Create button was not found. No publication attempted.");
+                "Home Create button was not found. No publication attempted.");
 
         create.Click();
-        Console.Error.WriteLine("[facebook-reel] create.menu: tapped Create; looking for Reel option");
+        Console.Error.WriteLine("[facebook-reel] create.menu: tapped Home Create; looking for Reel option");
         var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
@@ -51,15 +68,26 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
             {
                 reel.Click();
                 Console.Error.WriteLine("[facebook-reel] create.open: tapped Reel option");
-                return new FacebookReelsPreparationResult(
-                    "facebook_reel_creation_opened",
-                    "Tapped Facebook Create and Reel option. No video selected or published.");
+                var galleryDeadline = DateTime.UtcNow.AddSeconds(15);
+                while (DateTime.UtcNow < galleryDeadline)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    if (_driver.FindElements(By.XPath(
+                        "//*[@text='Создание видео Reels' or @content-desc='Создание видео Reels' or @text='Create reel' or @content-desc='Create reel']"))
+                        .Any(element => element.Displayed))
+                        return new FacebookReelsPreparationResult(
+                            "facebook_reel_creation_opened",
+                            "Facebook Reels creation gallery opened from Home. No video selected or published.");
+                    Thread.Sleep(400);
+                }
+                return Failure("facebook_reel_gallery_not_found",
+                    "Reel option tapped, but creation gallery not confirmed. No publication attempted.");
             }
             Thread.Sleep(400);
         }
 
         return Failure("facebook_reel_option_not_found",
-            "Facebook Create menu opened, but Reel option was not found. No publication attempted.");
+            "Home Create menu opened, but Reel option was not found. No publication attempted.");
     }
 
     private FacebookReelsPreparationResult Failure(string status, string message)
