@@ -75,7 +75,7 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-tiktok":
             publishVideoTikTok = true;
             break;
-        case "--publish-video-facebook":
+        case "--publish-video-facebook-stories":
             publishVideoFacebook = true;
             break;
         case "--diagnose-ui":
@@ -493,7 +493,7 @@ static void PrintUsage()
       --task-id ID         Optional task identifier.
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
-      --publish-video-facebook  Publish Facebook story and verify the unseen-stories indicator.
+      --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
