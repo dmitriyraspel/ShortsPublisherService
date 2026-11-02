@@ -68,10 +68,27 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
             {
                 reel.Click();
                 Console.Error.WriteLine("[facebook-reel] create.open: tapped Reel option");
-                var galleryDeadline = DateTime.UtcNow.AddSeconds(15);
+                var galleryDeadline = DateTime.UtcNow.AddSeconds(20);
+                // Facebook may offer to resume unsaved Reel edits. For this workflow
+                // always discard those changes and start a fresh Reel.
+                var resetHandled = false;
                 while (DateTime.UtcNow < galleryDeadline)
                 {
                     cancellationToken.ThrowIfCancellationRequested();
+                    if (!resetHandled && _driver.FindElements(By.XPath(
+                        "//*[contains(@text,'Продолжить редактирование последнего видео') or contains(@text,'Continue editing your last reel')]"))
+                        .Any(element => element.Displayed))
+                    {
+                        var reset = _driver.FindElements(By.XPath(
+                            "//*[@resource-id='android:id/button3' and (@text='СБРОСИТЬ' or @text='RESET' or @text='Discard')]"))
+                            .FirstOrDefault(element => element.Displayed && element.Enabled);
+                        if (reset is null)
+                            return Failure("facebook_reel_reset_button_not_found",
+                                "Previous Reel edit dialog found, but Reset button is unavailable. No publication attempted.");
+                        reset.Click();
+                        resetHandled = true;
+                        Console.Error.WriteLine("[facebook-reel] create.reset: discarded unsaved previous Reel edits");
+                    }
                     if (_driver.FindElements(By.XPath(
                         "//*[@text='Создание видео Reels' or @content-desc='Создание видео Reels' or @text='Create reel' or @content-desc='Create reel']"))
                         .Any(element => element.Displayed))
