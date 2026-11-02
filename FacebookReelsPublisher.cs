@@ -424,8 +424,44 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
             {
                 more.Click();
                 Console.Error.WriteLine("[facebook-reel] options.more: tapped More options");
-                return new FacebookReelsPreparationResult("facebook_reel_more_options_opened",
-                    "Opened More options for an existing post. No publication attempted.");
+                var copyDeadline = DateTime.UtcNow.AddSeconds(10);
+                while (DateTime.UtcNow < copyDeadline)
+                {
+                    cancellationToken.ThrowIfCancellationRequested();
+                    var copyLink = _driver.FindElements(By.XPath(
+                        "//*[@clickable='true' and (normalize-space(@content-desc)='Копировать ссылку' or normalize-space(@text)='Копировать ссылку' or normalize-space(@content-desc)='Copy link')]"))
+                        .FirstOrDefault(e => e.Displayed && e.Enabled);
+                    if (copyLink is not null)
+                    {
+                        copyLink.Click();
+                        Console.Error.WriteLine("[facebook-reel] options.copy: tapped Copy link");
+                        Thread.Sleep(500);
+                        try
+                        {
+                            var clipboard = _driver.GetClipboardText()?.Trim();
+                            if (Uri.TryCreate(clipboard, UriKind.Absolute, out var uri) &&
+                                (uri.Scheme == Uri.UriSchemeHttps || uri.Scheme == Uri.UriSchemeHttp) &&
+                                (uri.Host.Equals("facebook.com", StringComparison.OrdinalIgnoreCase) ||
+                                 uri.Host.EndsWith(".facebook.com", StringComparison.OrdinalIgnoreCase) ||
+                                 uri.Host.Equals("fb.watch", StringComparison.OrdinalIgnoreCase)))
+                            {
+                                Console.Error.WriteLine("[facebook-reel] options.clipboard: Facebook URL read");
+                                return new FacebookReelsPreparationResult("facebook_reel_options_link_read",
+                                    "Copied existing post URL from More options; no publication attempted.", clipboard);
+                            }
+                            return new FacebookReelsPreparationResult("facebook_reel_options_clipboard_invalid",
+                                "Copy link tapped, but clipboard did not contain a recognized Facebook URL.");
+                        }
+                        catch (Exception ex)
+                        {
+                            return new FacebookReelsPreparationResult("facebook_reel_options_clipboard_unavailable",
+                                "Copy link tapped, but Android clipboard could not be read: " + ex.Message);
+                        }
+                    }
+                    Thread.Sleep(300);
+                }
+                return new FacebookReelsPreparationResult("facebook_reel_options_copy_not_found",
+                    "More options opened, but Copy link button was not found.");
             }
             Thread.Sleep(300);
         }
