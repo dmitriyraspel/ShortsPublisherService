@@ -195,7 +195,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                 var confirmedSamples = 0;
                                                 // Capture the changing UI for analysis. Do not infer success from
                                                 // the click or from the disappearance of the editor.
-                                                for (var sample = 0; sample < 45; sample++)
+                                                for (var sample = 0; sample < 100; sample++)
                                                 {
                                                     cancellationToken.ThrowIfCancellationRequested();
                                                     var xmlPath = Path.Combine(diagnosticDirectory,
@@ -234,7 +234,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                         diagnosticErrors++;
                                                         Console.Error.WriteLine($"[facebook-reel] share.xml warning: {ex.Message}");
                                                     }
-                                                    if (sample < 44) Thread.Sleep(2000);
+                                                    if (sample < 99) Thread.Sleep(2000);
                                                 }
                                                 return new FacebookReelsPreparationResult(
                                                     "facebook_reel_share_submitted_unconfirmed",
