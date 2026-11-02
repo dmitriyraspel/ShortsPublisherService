@@ -7,8 +7,9 @@ using OpenQA.Selenium.Appium.Android;
 namespace ShortsPublisher;
 
 /// <summary>
-/// Facebook Reels automation with post-submit XML diagnostics.
-/// Submission is not treated as confirmed publication.
+/// Facebook Reels publication with in-memory UI verification, link retrieval,
+/// and best-effort cleanup of the uploaded Android video.
+/// Submission alone is not treated as confirmed publication.
 /// </summary>
 public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposable
 {
