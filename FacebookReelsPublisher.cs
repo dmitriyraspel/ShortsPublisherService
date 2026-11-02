@@ -29,43 +29,57 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
         _driver.ActivateApp(FacebookPackage);
         Console.Error.WriteLine("[facebook-reel] app.open: ready");
 
-        // Only use an explicitly labelled entry point. Never guess screen coordinates
-        // or click a generic Share button in this exploratory stage.
-        var deadline = DateTime.UtcNow.AddSeconds(20);
+        // On the Reels tab, Facebook exposes a generic Create button first.
+        // Only tap that explicitly labelled button; then inspect the menu for Reel.
+        var create = _driver.FindElements(By.XPath(
+            "//*[@clickable='true' and (starts-with(@content-desc,'Создать:') or starts-with(@content-desc,'Create:'))]"))
+            .FirstOrDefault(element => element.Displayed && element.Enabled);
+        if (create is null)
+            return Failure("facebook_reel_create_button_not_found",
+                "Facebook Create button was not found. No publication attempted.");
+
+        create.Click();
+        Console.Error.WriteLine("[facebook-reel] create.menu: tapped Create; looking for Reel option");
+        var deadline = DateTime.UtcNow.AddSeconds(15);
         while (DateTime.UtcNow < deadline)
         {
             cancellationToken.ThrowIfCancellationRequested();
-            var entry = _driver.FindElements(By.XPath(
-                "//*[@clickable='true' and (@content-desc='Create reel' or @content-desc='Создать видео Reels' or @content-desc='Создать Reel' or @text='Create reel' or @text='Создать видео Reels' or @text='Создать Reel')]"))
+            var reel = _driver.FindElements(By.XPath(
+                "//*[@clickable='true' and (@content-desc='Видео Reels' or @content-desc='Reel' or @content-desc='Создать видео Reels' or @content-desc='Create reel' or @text='Видео Reels' or @text='Reel' or @text='Создать видео Reels' or @text='Create reel')]"))
                 .FirstOrDefault(element => element.Displayed && element.Enabled);
-            if (entry is not null)
+            if (reel is not null)
             {
-                entry.Click();
-                Console.Error.WriteLine("[facebook-reel] create.open: tapped labelled Reel creation entry");
+                reel.Click();
+                Console.Error.WriteLine("[facebook-reel] create.open: tapped Reel option");
                 return new FacebookReelsPreparationResult(
                     "facebook_reel_creation_opened",
-                    "Tapped the labelled Facebook Reel creation entry. No video selected or published.");
+                    "Tapped Facebook Create and Reel option. No video selected or published.");
             }
-            Thread.Sleep(500);
+            Thread.Sleep(400);
         }
 
+        return Failure("facebook_reel_option_not_found",
+            "Facebook Create menu opened, but Reel option was not found. No publication attempted.");
+    }
+
+    private FacebookReelsPreparationResult Failure(string status, string message)
+    {
         string? diagnosticPath = null;
         try
         {
             var directory = Path.Combine("diagnostics", "facebook-reels");
             Directory.CreateDirectory(directory);
-            diagnosticPath = Path.Combine(directory, $"entry_not_found_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
-            File.WriteAllText(diagnosticPath, _driver.PageSource);
+            diagnosticPath = Path.Combine(directory,
+                $"navigation_{DateTimeOffset.UtcNow:yyyyMMdd_HHmmss_fff}.xml");
+            File.WriteAllText(diagnosticPath, _driver!.PageSource);
             Console.Error.WriteLine($"[facebook-reel] diagnostics.xml: {diagnosticPath}");
         }
         catch (Exception ex)
         {
             Console.Error.WriteLine($"[facebook-reel] diagnostics.xml warning: {ex.Message}");
         }
-
-        return new FacebookReelsPreparationResult(
-            "facebook_reel_entry_not_found",
-            $"No labelled Reel creation entry found. No publication attempted. Diagnostic XML: {diagnosticPath ?? "<unavailable>"}");
+        return new FacebookReelsPreparationResult(status,
+            $"{message} Diagnostic XML: {diagnosticPath ?? "<unavailable>"}");
     }
 
     public void Dispose()
