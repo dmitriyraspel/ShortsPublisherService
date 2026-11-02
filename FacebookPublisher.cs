@@ -7,8 +7,8 @@ using OpenQA.Selenium.Appium.Android;
 namespace ShortsPublisher;
 
 /// <summary>
-/// Incremental Facebook UI automation. Opens Facebook, navigates to Profile, and taps Add to story.
-/// No media upload or publication is performed.
+/// Facebook story automation: copies a video to Android, selects it in the gallery,
+/// and submits it using the story Share button. Caption is not added to stories.
 /// </summary>
 public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
 {
@@ -167,10 +167,29 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
 
         Console.Error.WriteLine($"[facebook] gallery.select: tapping {candidates[0].Description}");
         candidates[0].Element.Click();
-        Console.Error.WriteLine("[facebook] gallery.select: video tile tapped; publication not attempted");
+        Console.Error.WriteLine("[facebook] share.locate: waiting for Share / Поделиться");
+        var shareDeadline = DateTime.UtcNow.AddSeconds(20);
+        IWebElement? shareButton = null;
+        while (DateTime.UtcNow < shareDeadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            shareButton = _driver.FindElements(By.XPath(
+                "//*[@class='android.widget.Button' and (@content-desc='Share' or @content-desc='Поделиться') and @clickable='true']"))
+                .FirstOrDefault(element => element.Displayed && element.Enabled);
+            if (shareButton is not null) break;
+            Thread.Sleep(500);
+        }
+        if (shareButton is null)
+            throw new InvalidOperationException(
+                "Facebook story Share / Поделиться button was not found. No publication attempted.");
+
+        Console.Error.WriteLine("[facebook] share.tap: tapping Share / Поделиться");
+        shareButton.Click();
+        Console.Error.WriteLine("[facebook] share.tap: tapped; publication confirmation not verified");
         return Task.FromResult(new FacebookPreparationResult(
-            "facebook_video_selected",
-            $"Tapped unique recent video candidate: {candidates[0].Description}. Filename identity is inferred from time, not verified. No video was published."));
+            "facebook_share_tapped",
+            "Tapped Facebook story Share button. Submission was initiated, but publication was not independently verified."));
+
 
 
     }
