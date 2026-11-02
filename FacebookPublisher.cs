@@ -106,6 +106,15 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         var profileBeforeShare = _driver.PageSource;
         var hadActiveStory = profileBeforeShare.Contains(storyIndicator, StringComparison.OrdinalIgnoreCase)
             || profileBeforeShare.Contains(englishStoryIndicator, StringComparison.OrdinalIgnoreCase);
+        if (hadActiveStory)
+        {
+            Console.Error.WriteLine("[facebook] story.reset: unseen stories present; attempting fast viewing");
+            var reset = TryResetUnseenStories(adb, cancellationToken);
+            Console.Error.WriteLine($"[facebook] story.reset: cleared={reset}");
+            // Read the profile again: only a verified absent indicator is a clean baseline.
+            var refreshedProfile = _driver.PageSource;
+            hadActiveStory = HasUnseenStories(refreshedProfile);
+        }
         Console.Error.WriteLine($"[facebook] story.baseline: active story indicator present={hadActiveStory}");
         Console.Error.WriteLine("[facebook] story.open: locating Add to story");
         var storyDeadline = DateTime.UtcNow.AddSeconds(20);
@@ -265,6 +274,90 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
                 ? "Story indicator already existed before Share; new publication cannot be confirmed by this signal."
                 : "Story indicator did not appear within 200 seconds after Share.",
             false));
+    }
+
+    private static bool HasUnseenStories(string xml) =>
+        xml.Contains("Фото профиля с непросмотренными историями", StringComparison.OrdinalIgnoreCase)
+        || xml.Contains("Profile picture with unseen stories", StringComparison.OrdinalIgnoreCase);
+
+    private bool TryResetUnseenStories(AdbClient adb, CancellationToken cancellationToken)
+    {
+        // This is best-effort preflight cleanup, never evidence of a new publication.
+        // Stop after 30 seconds or 20 skips; do not wait for 60-second videos.
+        var deadline = DateTime.UtcNow.AddSeconds(30);
+        try
+        {
+            var avatar = _driver!.FindElements(By.XPath(
+                "//*[@content-desc='Фото профиля с непросмотренными историями' or @content-desc='Profile picture with unseen stories']"))
+                .FirstOrDefault(element => element.Displayed && element.Enabled && element.GetAttribute("clickable") == "true");
+            if (avatar is null)
+            {
+                Console.Error.WriteLine("[facebook] story.reset: clickable profile photo not found");
+                return false;
+            }
+
+            avatar.Click();
+            var viewStory = (IWebElement?)null;
+            while (DateTime.UtcNow < deadline && viewStory is null)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                viewStory = _driver.FindElements(By.XPath(
+                    "//*[@class='android.widget.Button' and (@content-desc='Посмотреть историю' or @content-desc='View story') and @clickable='true']"))
+                    .FirstOrDefault(element => element.Displayed && element.Enabled);
+                if (viewStory is null) Thread.Sleep(300);
+            }
+            if (viewStory is null)
+            {
+                Console.Error.WriteLine("[facebook] story.reset: View story action not found");
+                _driver.Navigate().Back();
+                return false;
+            }
+
+            viewStory.Click();
+            Thread.Sleep(700);
+            for (var skip = 0; skip < 20 && DateTime.UtcNow < deadline; skip++)
+            {
+                cancellationToken.ThrowIfCancellationRequested();
+                var xml = _driver.PageSource;
+                // Returning to the profile and losing the unseen indicator is the
+                // only success condition; never infer it from tap count.
+                if (xml.Contains("Дополнить историю", StringComparison.Ordinal)
+                    || xml.Contains("Add to story", StringComparison.Ordinal))
+                {
+                    var cleared = !HasUnseenStories(xml);
+                    if (cleared) return true;
+                    // Still unseen: reopen the viewer if it closed early.
+                    var photo = _driver.FindElements(By.XPath(
+                        "//*[@content-desc='Фото профиля с непросмотренными историями' or @content-desc='Profile picture with unseen stories']"))
+                        .FirstOrDefault(element => element.Displayed && element.Enabled && element.GetAttribute("clickable") == "true");
+                    if (photo is null) break;
+                    photo.Click();
+                    var action = _driver.FindElements(By.XPath(
+                        "//*[@class='android.widget.Button' and (@content-desc='Посмотреть историю' or @content-desc='View story') and @clickable='true']"))
+                        .FirstOrDefault(element => element.Displayed && element.Enabled);
+                    if (action is null) break;
+                    action.Click();
+                }
+                // Right-side tap advances the current Facebook story immediately.
+                adb.ShellAsync(_options.DeviceId, cancellationToken, "input", "tap", "920", "1050")
+                    .GetAwaiter().GetResult();
+                Console.Error.WriteLine($"[facebook] story.reset: skipped story {skip + 1}");
+                Thread.Sleep(350);
+            }
+
+            // Exit the viewer and inspect the actual profile state.
+            _driver.Navigate().Back();
+            Thread.Sleep(500);
+            return !HasUnseenStories(_driver.PageSource)
+                && (_driver.PageSource.Contains("Дополнить историю", StringComparison.Ordinal)
+                    || _driver.PageSource.Contains("Add to story", StringComparison.Ordinal));
+        }
+        catch (Exception ex) when (ex is WebDriverException or InvalidOperationException)
+        {
+            Console.Error.WriteLine($"[facebook] story.reset: failed: {ex.Message}");
+            try { _driver?.Navigate().Back(); } catch { }
+            return false;
+        }
     }
 
     private void Connect()
