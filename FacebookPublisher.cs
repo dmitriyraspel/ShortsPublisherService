@@ -108,7 +108,7 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             addToStory = _driver.FindElements(By.XPath(
-                "//*[@class='android.widget.Button' and @content-desc='Add to story' and @clickable='true']"))
+                "//*[@class='android.widget.Button' and (@content-desc='Add to story' or @content-desc='Дополнить историю') and @clickable='true']"))
                 .FirstOrDefault(element => element.Displayed && element.Enabled);
             if (addToStory is not null) break;
             Thread.Sleep(500);
