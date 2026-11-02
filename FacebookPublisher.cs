@@ -111,7 +111,11 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
             Console.Error.WriteLine("[facebook] story.reset: unseen stories present; attempting fast viewing");
             var reset = TryResetUnseenStories(adb, cancellationToken);
             Console.Error.WriteLine($"[facebook] story.reset: cleared={reset}");
-            // Read the profile again: only a verified absent indicator is a clean baseline.
+            // The story viewer can leave us on a different screen. Never treat
+            // absence of the indicator outside the profile as a clean baseline.
+            if (!EnsureProfileAfterStoryReset(cancellationToken))
+                throw new InvalidOperationException(
+                    "Facebook did not return to the profile after story reset. No publication attempted.");
             var refreshedProfile = _driver.PageSource;
             hadActiveStory = HasUnseenStories(refreshedProfile);
         }
@@ -274,6 +278,40 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
                 ? "Story indicator already existed before Share; new publication cannot be confirmed by this signal."
                 : "Story indicator did not appear within 200 seconds after Share.",
             false));
+    }
+
+    private bool EnsureProfileAfterStoryReset(CancellationToken cancellationToken)
+    {
+        const string profileAction =
+            "//*[@class='android.widget.Button' and (@content-desc='Add to story' or @content-desc='Дополнить историю') and @clickable='true']";
+        const string profileTab =
+            "//*[@class='android.app.ActionBar$Tab' and (starts-with(@content-desc,'Profile, tab ') or starts-with(@content-desc,'Профиль, вкладка '))]";
+        var deadline = DateTime.UtcNow.AddSeconds(15);
+        while (DateTime.UtcNow < deadline)
+        {
+            cancellationToken.ThrowIfCancellationRequested();
+            if (_driver!.FindElements(By.XPath(profileAction)).Any(e => e.Displayed && e.Enabled))
+            {
+                Console.Error.WriteLine("[facebook] story.reset: profile verified");
+                return true;
+            }
+
+            var tab = _driver.FindElements(By.XPath(profileTab))
+                .FirstOrDefault(e => e.Displayed && e.Enabled);
+            if (tab is not null)
+            {
+                Console.Error.WriteLine("[facebook] story.reset: returning via Profile tab");
+                tab.Click();
+            }
+            else
+            {
+                Console.Error.WriteLine("[facebook] story.reset: returning via Back");
+                _driver.Navigate().Back();
+            }
+            Thread.Sleep(700);
+        }
+        Console.Error.WriteLine("[facebook] story.reset: profile recovery timed out");
+        return false;
     }
 
     private static bool HasUnseenStories(string xml) =>
