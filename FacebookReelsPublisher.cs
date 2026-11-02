@@ -381,6 +381,41 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
             "Copy link button was not found. Open the published Reel share sheet and retry; no publication attempted.");
     }
 
+    /// <summary>Open the three-dot menu of a visible existing Facebook post; no publishing.</summary>
+    public FacebookReelsPreparationResult OpenVisiblePostOptions(string? caption = null, CancellationToken cancellationToken = default)
+    {
+        cancellationToken.ThrowIfCancellationRequested();
+        var caps = new AppiumOptions();
+        caps.PlatformName = "Android";
+        caps.AutomationName = "UiAutomator2";
+        caps.DeviceName = "Pixel 6a";
+        caps.AddAdditionalAppiumOption("udid", options.DeviceId);
+        caps.AddAdditionalAppiumOption("appPackage", FacebookPackage);
+        caps.AddAdditionalAppiumOption("noReset", true);
+        caps.AddAdditionalAppiumOption("newCommandTimeout", 180);
+        _driver = new AndroidDriver(new Uri(options.AppiumServer), caps, TimeSpan.FromMinutes(3));
+        _driver.ActivateApp(FacebookPackage);
+
+        if (!string.IsNullOrWhiteSpace(caption) &&
+            !_driver.FindElements(By.XPath(
+                "//*[@text=" + XPathLiteral(caption) + " or @content-desc=" + XPathLiteral(caption) + "]"))
+                .Any(e => e.Displayed))
+            return new FacebookReelsPreparationResult("facebook_reel_options_caption_not_found",
+                "Requested caption is not visible; no menu opened.");
+
+        var optionsButton = _driver.FindElements(By.XPath(
+            "//*[@clickable='true' and (starts-with(@content-desc,'Другие параметры публикации') or starts-with(@content-desc,'More options for post'))]"))
+            .FirstOrDefault(e => e.Displayed && e.Enabled);
+        if (optionsButton is null)
+            return new FacebookReelsPreparationResult("facebook_reel_options_button_not_found",
+                "Three-dot post options button is not visible.");
+
+        optionsButton.Click();
+        Console.Error.WriteLine("[facebook-reel] options.open: tapped post three-dot menu");
+        return new FacebookReelsPreparationResult("facebook_reel_options_opened",
+            "Opened options for an existing visible post. No publication attempted.");
+    }
+
     private static string XPathLiteral(string value)
     {
         if (!value.Contains('\'')) return "'" + value + "'";
