@@ -148,28 +148,36 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
 
         // Facebook exposes media date and duration, but not the filename.
         // Only select when exactly one video matches the recent Android scan time.
-        var candidates = videos.Where(video =>
+        var timestampedVideos = videos.Select(video =>
         {
             var russian = video.Description.StartsWith("Выбрать видео, ", StringComparison.Ordinal);
             var english = video.Description.StartsWith("Select video, ", StringComparison.Ordinal);
-            if (!russian && !english) return false;
+            if (!russian && !english)
+                return new { video.Element, video.Description, Timestamp = (DateTime?)null };
             var prefix = russian ? "Выбрать видео, " : "Select video, ";
             var datePart = video.Description[prefix.Length..];
             var lastComma = datePart.LastIndexOf(", ", StringComparison.Ordinal);
-            if (lastComma < 0) return false;
-            var timestamp = datePart[..lastComma];
+            if (lastComma < 0)
+                return new { video.Element, video.Description, Timestamp = (DateTime?)null };
             var culture = russian ? CultureInfo.GetCultureInfo("ru-RU") : CultureInfo.InvariantCulture;
-            if (!DateTime.TryParseExact(timestamp, "MMM dd, yyyy HH:mm",
-                    culture, DateTimeStyles.None, out var mediaTime))
-                return false;
-            var difference = (mediaTime - deviceScanTime).Duration();
-            return difference <= TimeSpan.FromMinutes(3);
-        }).ToArray();
+            var parsed = DateTime.TryParseExact(datePart[..lastComma], "MMM dd, yyyy HH:mm",
+                culture, DateTimeStyles.None, out var mediaTime);
+            return new { video.Element, video.Description, Timestamp = parsed ? (DateTime?)mediaTime : null };
+        }).Where(video => video.Timestamp.HasValue
+            && (video.Timestamp.Value - deviceScanTime).Duration() <= TimeSpan.FromMinutes(3))
+          .ToArray();
+
+        var latestTimestamp = timestampedVideos.Length > 0
+            ? timestampedVideos.Max(video => video.Timestamp!.Value)
+            : (DateTime?)null;
+        var candidates = timestampedVideos
+            .Where(video => video.Timestamp == latestTimestamp)
+            .ToArray();
 
         Console.Error.WriteLine($"[facebook] gallery.match: {candidates.Length} recent video candidates");
         if (candidates.Length != 1)
             throw new InvalidOperationException(
-                $"Facebook video selection is ambiguous: {candidates.Length} candidates. No video selected or published.");
+                $"Facebook latest video selection is ambiguous: {candidates.Length} candidates at {latestTimestamp:yyyy-MM-dd HH:mm}. No video selected or published.");
 
         Console.Error.WriteLine($"[facebook] gallery.select: tapping {candidates[0].Description}");
         candidates[0].Element.Click();
