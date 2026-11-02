@@ -171,7 +171,7 @@ try
     {
         using var facebookReels = new FacebookReelsPublisher(options);
         var optionsResult = facebookReels.OpenVisiblePostOptions(caption, CancellationToken.None);
-        var opened = optionsResult.Status == "facebook_reel_options_opened";
+        var opened = optionsResult.Status == "facebook_reel_more_options_opened";
         return await EmitAsync(new JobResult(taskId, optionsResult.Status, opened, false,
             null, optionsResult.Message, null, startedAt, DateTimeOffset.UtcNow),
             resultFile, opened ? ExitSuccess : ExitFailure);
