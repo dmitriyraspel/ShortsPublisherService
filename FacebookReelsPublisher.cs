@@ -14,7 +14,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
     private const string FacebookPackage = "com.facebook.katana";
     private AndroidDriver? _driver;
 
-    public FacebookReelsPreparationResult OpenReelCreation(string? filePath, CancellationToken cancellationToken = default)
+    public FacebookReelsPreparationResult OpenReelCreation(string? filePath, string? caption, CancellationToken cancellationToken = default)
     {
         cancellationToken.ThrowIfCancellationRequested();
         if (string.IsNullOrWhiteSpace(filePath) || !File.Exists(filePath))
@@ -143,9 +143,33 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                     {
                                         next.Click();
                                         Console.Error.WriteLine("[facebook-reel] editor.next: tapped Next");
-                                        return new FacebookReelsPreparationResult(
-                                            "facebook_reel_next_tapped",
-                                            "Tapped Next in Facebook Reel editor. No publication attempted.");
+                                        var captionDeadline = DateTime.UtcNow.AddSeconds(35);
+                                        while (DateTime.UtcNow < captionDeadline)
+                                        {
+                                            cancellationToken.ThrowIfCancellationRequested();
+                                            var captionField = _driver.FindElements(By.XPath(
+                                                "//*[@class='android.widget.AutoCompleteTextView' and (contains(@content-desc,'описание к своему видео Reels') or contains(@text,'описание к своему видео Reels') or contains(@content-desc,'description') or contains(@text,'description'))]"))
+                                                .FirstOrDefault(element => element.Displayed && element.Enabled);
+                                            if (captionField is not null)
+                                            {
+                                                if (!string.IsNullOrWhiteSpace(caption))
+                                                {
+                                                    captionField.Click();
+                                                    captionField.SendKeys(caption);
+                                                    Console.Error.WriteLine("[facebook-reel] caption.enter: description entered");
+                                                }
+                                                else
+                                                {
+                                                    Console.Error.WriteLine("[facebook-reel] caption.skip: no caption provided");
+                                                }
+                                                return new FacebookReelsPreparationResult(
+                                                    "facebook_reel_caption_ready",
+                                                    "Reel publication settings opened; caption processed. No publication attempted.");
+                                            }
+                                            Thread.Sleep(500);
+                                        }
+                                        return Failure("facebook_reel_caption_field_not_found",
+                                            "Tapped Next, but Reel caption field did not appear within 35 seconds. No publication attempted.");
                                     }
                                     Thread.Sleep(400);
                                 }
