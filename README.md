@@ -155,6 +155,49 @@ adb devices
 
 
 
+## Facebook Reels
+
+Для публикации требуется установленный Facebook с активным аккаунтом на Android-устройстве, работающие ADB и Appium (UiAutomator2). **Команда создаёт реальную публикацию.**
+
+```powershell
+& $DOTNET run -- --publish-video-facebook-reel --file ".\videos\clip.mp4" --caption "My reel #dog #funny #reels"
+```
+
+Для Facebook Reels параметры `--file` и **непустой** `--caption` обязательны. Поддерживаются `.mp4`, `.mov`, `.m4v`. Сервис копирует видео на Android, сверяет SHA-256, выбирает первый (самый новый) ролик в галерее Facebook, вводит подпись и нажимает «Поделиться сейчас». Публикация подтверждается двумя последовательными проверками интерфейса: точная подпись и метка Reels присутствуют в ленте, индикатор загрузки отсутствует.
+
+После подтверждения сервис пытается получить ссылку через меню публикации **«Три точки → Другие параметры → Копировать ссылку»**, считывает её из буфера обмена Android и возвращает поле `PublicationUrl` в JSON. Затем удаляет только загруженную временную копию видео с Android и запрашивает обновление медиатеки. Ошибки копирования ссылки или очистки не отменяют уже подтверждённую публикацию.
+
+Пример успешного результата (сокращённый):
+
+```json
+{
+  "Status": "facebook_reel_published",
+  "Success": true,
+  "Published": true,
+  "PublicationUrl": "https://www.facebook.com/share/r/EXAMPLE/"
+}
+```
+
+Если после отправки подтверждение не получено, возвращается `facebook_reel_share_submitted_unconfirmed`, `Success: false`, `Published: false` и код завершения `1`. **Не повторяйте публикацию автоматически:** сначала проверьте Facebook, чтобы избежать дубликатов. Отсутствующий или пустой `--caption` возвращает `invalid_arguments` с кодом `2`, не начиная публикацию.
+
+### Получение ссылки без повторной публикации
+
+Рекомендуемый проверенный способ — через меню с тремя точками у **уже видимой** публикации:
+
+```powershell
+& $DOTNET run -- --facebook-reel-post-options --caption "My reel #dog #funny #reels"
+```
+
+При успехе возвращает `Status: facebook_reel_options_link_read`, `Success: true`, `Published: false` и `PublicationUrl`.
+
+Альтернативный способ — через кнопку «Поделиться» у видимого Reels:
+
+```powershell
+& $DOTNET run -- --copy-facebook-reel-link --caption "My reel #dog #funny #reels"
+```
+
+При успехе возвращает `Status: facebook_reel_link_read`, `Success: true`, `Published: false` и `PublicationUrl`. Для обеих команд `--file` не нужен, а `--caption` необязателен, но рекомендуется для проверки нужной публикации. Если соответствующие элементы интерфейса не видны, команда завершится ошибкой без создания нового Reels.
+
 ## Experimental Instagram file handoff
 
 Run `dotnet run -- --file ".\\videos\\clip.mp4" --instagram-open-video` to verify the local and Android SHA-256 values, locate a uniquely named MediaStore entry, and attempt an Android ACTION_SEND to Instagram. The command saves UI XML in `diagnostics/` and **never publishes**. A successful exit means the handoff was attempted, **not** that Instagram selected the correct video. Inspect the emulator and XML. The Android device must support `sha256sum` and MediaStore queries.
