@@ -127,12 +127,12 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         {
             cancellationToken.ThrowIfCancellationRequested();
             if (_driver.FindElements(By.XPath(
-                "//*[@class='android.widget.Spinner' and starts-with(@content-desc,'Select album, ')]")).Count > 0)
+                "//*[@class='android.widget.Spinner' and (starts-with(@content-desc,'Select album, ') or starts-with(@content-desc,'Выбор альбома, '))]")).Count > 0)
                 break;
             Thread.Sleep(500);
         }
         var videos = _driver.FindElements(By.XPath(
-            "//*[@class='android.widget.Button' and starts-with(@content-desc,'Select video, ')]"))
+            "//*[@class='android.widget.Button' and (starts-with(@content-desc,'Select video, ') or starts-with(@content-desc,'Выбрать видео, '))]"))
             .Where(element => element.Displayed && element.Enabled)
             .Select(element => new { Element = element, Description = element.GetAttribute("content-desc") ?? "" })
             .ToArray();
@@ -144,15 +144,17 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
         // Only select when exactly one video matches the recent Android scan time.
         var candidates = videos.Where(video =>
         {
-            if (!video.Description.StartsWith("Select video, ", StringComparison.Ordinal))
-                return false;
-            // Example: "Select video, Nov 02, 2026 09:14, 21 seconds"
-            var datePart = video.Description["Select video, ".Length..];
+            var russian = video.Description.StartsWith("Выбрать видео, ", StringComparison.Ordinal);
+            var english = video.Description.StartsWith("Select video, ", StringComparison.Ordinal);
+            if (!russian && !english) return false;
+            var prefix = russian ? "Выбрать видео, " : "Select video, ";
+            var datePart = video.Description[prefix.Length..];
             var lastComma = datePart.LastIndexOf(", ", StringComparison.Ordinal);
             if (lastComma < 0) return false;
             var timestamp = datePart[..lastComma];
+            var culture = russian ? CultureInfo.GetCultureInfo("ru-RU") : CultureInfo.InvariantCulture;
             if (!DateTime.TryParseExact(timestamp, "MMM dd, yyyy HH:mm",
-                    CultureInfo.InvariantCulture, DateTimeStyles.None, out var mediaTime))
+                    culture, DateTimeStyles.None, out var mediaTime))
                 return false;
             var difference = (mediaTime - deviceScanTime).Duration();
             return difference <= TimeSpan.FromMinutes(3);
