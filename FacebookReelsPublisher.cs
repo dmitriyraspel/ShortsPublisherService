@@ -228,25 +228,7 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
                                                                 {
                                                                     Console.Error.WriteLine($"[facebook-reel] link.warning: {linkEx.Message}");
                                                                 }
-                                                                // The published Reel is already on Facebook. Cleanup must not
-                                                                // turn a successful publication into a failed job.
-                                                                try
-                                                                {
-                                                                    _ = adb.ShellAsync(options.DeviceId, CancellationToken.None,
-                                                                        "rm", "-f", remotePath).GetAwaiter().GetResult();
-                                                                    // rm -f succeeds for an already absent file too.
-                                                                    // AdbClient throws on a nonzero exit code, so a failing
-                                                                    // ls would incorrectly treat successful deletion as failure.
-                                                                    Console.Error.WriteLine("[facebook-reel] media.cleanup: removed uploaded Android video");
-                                                                    adb.ShellAsync(options.DeviceId, CancellationToken.None,
-                                                                        "am", "broadcast", "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE",
-                                                                        "-d", $"file://{remotePath}").GetAwaiter().GetResult();
-                                                                    Console.Error.WriteLine("[facebook-reel] media.cleanup.scan: requested gallery refresh");
-                                                                }
-                                                                catch (Exception cleanupEx)
-                                                                {
-                                                                    Console.Error.WriteLine($"[facebook-reel] media.cleanup.warning: {cleanupEx.Message}");
-                                                                }
+                                                                CleanupPublishedAndroidMedia(adb, remoteDirectory, remotePath, sha);
                                                                 return new FacebookReelsPreparationResult(
                                                                     "facebook_reel_published",
                                                                     "Matching Reel caption and Reel label observed in two consecutive UI checks.",
@@ -291,6 +273,33 @@ public sealed class FacebookReelsPublisher(PublisherOptions options) : IDisposab
 
         return Failure("facebook_reel_option_not_found",
             "Home Create menu opened, but Reel option was not found. No publication attempted.");
+    }
+
+    private void CleanupPublishedAndroidMedia(
+        AdbClient adb, string remoteDirectory, string remotePath, string sha)
+    {
+        // Same cleanup pattern as Facebook Stories: validate the exact upload path,
+        // delete only our Android copy, then refresh MediaStore.
+        // Cleanup errors must never turn a confirmed publication into a failure.
+        try
+        {
+            var remoteName = remotePath[(remoteDirectory.Length + 1)..];
+            if (!remotePath.StartsWith(remoteDirectory + "/", StringComparison.Ordinal) ||
+                !remoteName.StartsWith($"fb_reel_{sha[..16]}_", StringComparison.Ordinal) ||
+                remoteName.Contains('/'))
+                throw new InvalidOperationException("Unsafe Facebook Reel Android media cleanup path.");
+            Console.Error.WriteLine("[facebook-reel] media.cleanup: removing uploaded Android copy");
+            adb.ShellAsync(options.DeviceId, CancellationToken.None, "rm", "--", remotePath)
+                .GetAwaiter().GetResult();
+            adb.ShellAsync(options.DeviceId, CancellationToken.None, "am", "broadcast",
+                "-a", "android.intent.action.MEDIA_SCANNER_SCAN_FILE", "-d", $"file://{remotePath}")
+                .GetAwaiter().GetResult();
+            Console.Error.WriteLine("[facebook-reel] media.cleanup: completed");
+        }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine($"[facebook-reel] media.cleanup.warning: {ex.Message}");
+        }
     }
 
     /// <summary>Copy the link of an already visible Facebook Reel. Never starts a publication.</summary>
