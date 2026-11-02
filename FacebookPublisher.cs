@@ -167,26 +167,10 @@ public sealed class FacebookPublisher(PublisherOptions options) : IDisposable
 
         Console.Error.WriteLine($"[facebook] gallery.select: tapping {candidates[0].Description}");
         candidates[0].Element.Click();
-        Console.Error.WriteLine("[facebook] audience.open: locating Friends audience control");
-        var audienceDeadline = DateTime.UtcNow.AddSeconds(20);
-        IWebElement? friendsAudience = null;
-        while (DateTime.UtcNow < audienceDeadline)
-        {
-            cancellationToken.ThrowIfCancellationRequested();
-            friendsAudience = _driver.FindElements(By.XPath(
-                "//*[@class='android.widget.Button' and (@content-desc='Friends' or @content-desc='Друзья') and @clickable='true']"))
-                .FirstOrDefault(element => element.Displayed && element.Enabled);
-            if (friendsAudience is not null) break;
-            Thread.Sleep(500);
-        }
-        if (friendsAudience is null)
-            throw new InvalidOperationException(
-                "Facebook Friends audience control was not found. No publication attempted.");
-        friendsAudience.Click();
-        Console.Error.WriteLine("[facebook] audience.open: tapped Friends; awaiting audience options XML; no publication attempted");
+        Console.Error.WriteLine("[facebook] gallery.select: video tile tapped; publication not attempted");
         return Task.FromResult(new FacebookPreparationResult(
-            "facebook_audience_options_opened",
-            "Opened Facebook story audience options. Public audience not yet selected or verified. No video was published."));
+            "facebook_video_selected",
+            $"Tapped unique recent video candidate: {candidates[0].Description}. Filename identity is inferred from time, not verified. No video was published."));
 
 
     }
