@@ -24,6 +24,7 @@ bool tiktokCreate = false;
 bool tiktokGallery = false;
 bool publishVideoTikTok = false;
 bool publishVideoFacebook = false;
+bool publishVideoFacebookReel = false;
 
 
 
@@ -75,6 +76,9 @@ for (var i = 0; i < args.Length; i++)
         case "--publish-video-tiktok":
             publishVideoTikTok = true;
             break;
+        case "--publish-video-facebook-reel":
+            publishVideoFacebookReel = true;
+            break;
         case "--publish-video-facebook-stories":
             publishVideoFacebook = true;
             break;
@@ -95,6 +99,7 @@ for (var i = 0; i < args.Length; i++)
 }
 
 if (!publishVideoFacebook &&
+    !publishVideoFacebookReel &&
     !tiktokGallery &&
     !tiktokCreate &&
     !openTikTok &&
@@ -150,6 +155,13 @@ try
         return await EmitAsync(new JobResult(taskId, "tiktok_opened", true, false,
             null, "TikTok launch command completed; no publication attempted.", null,
             startedAt, DateTimeOffset.UtcNow), resultFile, ExitSuccess);
+    }
+
+    if (publishVideoFacebookReel)
+    {
+        return await EmitAsync(new JobResult(taskId, "facebook_reel_not_implemented", false, false,
+            filePath, "Facebook Reels publication is not implemented yet; no publication attempted.",
+            null, startedAt, DateTimeOffset.UtcNow), resultFile, ExitFailure);
     }
 
     if (publishVideoFacebook)
@@ -494,6 +506,7 @@ static void PrintUsage()
       --result-file PATH   Optional JSON result path.
       --publish-video-youtube  Backwards-compatible switch.
       --publish-video-facebook-stories  Publish Facebook story and verify the unseen-stories indicator.
+      --publish-video-facebook-reel  Facebook Reels placeholder; no publication attempted.
       --tiktok-gallery    Tap TikTok bottom-left Upload/gallery button (Create screen).
       --tiktok-create     Tap TikTok bottom-center Create (+) button (app already open).
       --open-tiktok       Open TikTok without publishing.
